@@ -1,3 +1,15 @@
+2004-02-25  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+        * pwsafe: added pwsafe.1.in
+        * pwsafe: fixed (harmless) "yes" "yes" output
+          from configure.
+        * pwsafe: print out character length of suggested
+          random password (useful for sites that have
+          a length limit)
+        * pwsafe: when suggested random password entropy
+          gets under 64 bits decrement by 8 bits rather
+          than the usual 32 bits.
+
 2004-02-20  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
         * pwsafe: added a cheap substitute for getopt_long
