@@ -527,6 +527,7 @@ int main(int argc, char **argv) {
       if (arg_ignore.empty()) {
         arg_ignore.insert("xclipboard");
         arg_ignore.insert("klipper");
+        arg_ignore.insert("wmcliphist");
       }
 #endif
       
