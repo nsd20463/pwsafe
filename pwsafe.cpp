@@ -23,6 +23,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <getopt.h>
@@ -126,6 +128,7 @@ static int parse(int argc, char **argv);
 static const char* pwsafe_strerror(int err); // decodes errno's as well as our negative error codes
 #define PWSAFE_ERR_INVALID_DB -1
 
+static char get1char(const std::string& prompt, int def_val=-1);
 static bool getyn(const std::string& prompt, int def_val=-1);
 
 typedef std::string secstring; // for now; later we can modify the storage so it is not swapped out, and overwritten when freed
@@ -223,8 +226,8 @@ private:
   bool getkey(bool test, const char* prompt1="Enter passphrase", const char* prompt2="Reenter passphrase"); // ask for password
   bool open(); // call getkey(), read file into entries map
 
-  bool find(matches_t&, const char* regex);
-  const Entry& find1(const char* regex);
+  bool find(matches_t&, const char* regex); // find all entries matching regex
+  const Entry& find1(const char* regex); // find the one entry either == regex or matching; throw FailEx if 0 or >1 match
 public:
   const std::string dbname_str;
   const char*const dbname;
@@ -309,6 +312,16 @@ int main (int argc, char **argv) {
       throw FailEx();
     }
 
+    if (arg_name && !arg_casesensative) {
+      // automatically be case sensative of arg_name contains any uppercase chars
+      const char* p = arg_name;
+      while (*p)
+        if (isupper(*p++)) {
+          arg_casesensative = true;
+          break;
+        }
+    }
+
 #ifndef X_DISPLAY_MISSING
     if (arg_xclip && !XDisplayName(arg_display)) {
       fprintf(stderr, "$DISPLAY isn't set; use --display\n");
@@ -376,6 +389,9 @@ int main (int argc, char **argv) {
               while (getyn("Add another? [n] ", false))
                 db.add(NULL);
             }
+            break;
+          case OP_EDIT:
+            db.edit(arg_name);
             break;
           case OP_DELETE:
             db.del(arg_name);
@@ -556,7 +572,7 @@ static void usage(bool fail) {
         "Options:\n"
         "  -f, --file=DATABASE_FILE   specify the database file (default is ~/.pwsafe.dat)\n"
         "  -I, --case                 perform case sensative matching\n"
-        "  -l                         long listing\n"
+        "  -l                         long listing (show usename & notes)\n"
         "  -u, --username             emit username of listed account\n"
         "  -p, --password             emit password of listed account\n"
         "  -E, --echo                 force echoing of entry to stdout\n"
@@ -639,7 +655,7 @@ static secstring gettxt(const std::string& prompt, const secstring& default_="")
   }
 }
 
-static bool getyn(const std::string& prompt, int def_val) {
+static char get1char(const std::string& prompt, int def_val) {
   struct termios tio;
   tcgetattr(STDIN_FILENO, &tio);
   tio.c_lflag &= ~(ICANON);
@@ -654,28 +670,22 @@ static bool getyn(const std::string& prompt, int def_val) {
 
     if (rc == 1) {
       switch (x) {
-      case 'Y':
-      case 'y':
-        printf("\n");
-        tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-        return true;
-      case 'N':
-      case 'n':
-        printf("\n");
-        tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-        return false;
       case '\r':
         printf("\n");
-        // fall through
+        // fall through to '\n'
       case '\n':
         if (def_val >= 0) {
           tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-          return !!def_val;
+          return def_val;
         }
-        // else there is no default and the user must answer
+        // else there is no default and the user must press a proper char
+        break;
+      default:
+        printf("\n");
+        tcsetattr(STDIN_FILENO, TCSANOW, &tio);
+        return x;
       }
       // if we get this far the user didn't answer, and we loop and reprompt them
-      printf("\n");
     }
     else {
       tcsetattr(STDIN_FILENO, TCSANOW, &tio);
@@ -683,6 +693,359 @@ static bool getyn(const std::string& prompt, int def_val) {
     }
   }
 }
+
+static bool getyn(const std::string& prompt, int def_val) {
+  while (true) {
+    char c = get1char(prompt, def_val>0?'y':def_val==0?'n':-1);
+    switch (c) {
+    case 'y': case 'Y':
+      return true;
+    case 'n': case 'N':
+      return false;
+    // default: prompt again until we get a good answer
+    }
+  }
+}
+
+static secstring random_password() {
+  // here I implement the 'easyvision' mode of pwsafe 1.9.x where the resulting ascii has nice legibility properties for those who copy these by hand
+  const static char all_alphanum[] = "abcdefghijklmnopqrstuvwxyz"
+                                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                "0123456789";
+  const static char easyvision_alphanum[] = "abcdefghijkmnopqrstuvwxyz"
+                                       "ABCDEFGHJKLMNPQRTUVWXY"
+                                       "346789";
+  const static char easyvision_symbol[] = "+-=_@#$%^&<>/~\\?";
+
+
+  int entropy_needed = 20*8; // enough for proper initialization of a SHA1 hash, and enough for proper direct keying of 128-bit block ciphers
+  int type = 0;
+  while (true) {
+    const char* type_name = "";
+    const char* sets[2] = { "", "" };
+    int entropy_per_char;
+    switch (type) {
+      case 0: 
+        type_name = "alpha/digit/symbol";
+        sets[0] = all_alphanum;
+        sets[1] = easyvision_symbol;
+        entropy_per_char = 628; // 100 * log2(26+26+10+16) = log2(78); best case
+        break;
+      case 1:
+        type_name = "alpha/digit";
+        sets[0] = all_alphanum;
+        entropy_per_char = 595;
+        break;
+      case 2:
+        type_name = "easy-to-read alpha/digit";
+        sets[0] = easyvision_alphanum;
+        entropy_per_char = 555; // 100 * log2(25+22+10) = log2(57); worse case
+        break;
+      case 3:
+        type_name = "easy-to-read alpha/digit/symbol";
+        sets[0] = easyvision_alphanum;
+        sets[1] = easyvision_symbol;
+        entropy_per_char = 597;
+        break;
+      default:
+        // wrap around back to type 0
+        type = 0;
+        continue;
+    }
+
+    const int set0_chars = strlen(sets[0]);
+    const int total_chars = set0_chars + strlen(sets[1]);
+    
+    // But we are not going to generate all possible passwords because we are going to exclude those that don't have at least one char from each type, so that reduces the entropy_per_char
+    // if originally we had 2^(num_chars * entropy_per_char) possible passwords, and we exclude (in the worst case) (and double-counting those passwords that have two types of char missing)
+    // (57-25)/57 ^ num_chars + (57-22)/57 ^ num_chars + (57-10)/57 ^ num_chars of these, we reduce the bits of entropy per char by
+    // log2(57)-log2(57-25) + log2(57)-log2(57-22) + log2(57)-log2(57-10) = 1.82 pessimist bits/char
+    entropy_per_char -= 182;
+  
+    const int num_chars = 1+100*entropy_needed/entropy_per_char; // we want 20*8 bits of entropy in our password (thus good enough to create good SHA1 hashes/to key 128-bit key secret key algo's); +1 is in lou of rounding the division properly
+
+    secstring pw;
+    bool got_upper, got_lower, got_num, got_sym;
+    do {
+      pw.erase();
+
+      got_upper = false, got_lower = false, got_num = false, got_sym = false;
+      for (int i=0; i<num_chars; i++) {
+        unsigned char idx;
+        do {
+          if (!RAND_bytes(&idx,1)) {
+            fprintf(stderr, "Can't get random data: %s\n", ERR_error_string(ERR_get_error(), NULL));
+            throw FailEx();
+          }
+          idx &= 0x7f; // might as well strip off the upper bit since total_chars is never more than 64, and such a stripping doesn't change the distribution
+        } while (idx >= total_chars);
+        
+        char c;
+        if (idx < set0_chars)
+          c = sets[0][idx];
+        else
+          c = sets[1][idx-set0_chars];
+
+        pw += c;
+          
+        if (islower(c)) got_lower = true;
+        else if (isupper(c)) got_upper = true;
+        else if (isdigit(c)) got_num = true;
+        else got_sym = true;
+      }
+    } while (!got_lower || !got_upper || !got_num || (sets[1][0] && !got_sym)); // some systems want one of each type of char in the password, so might as well do it all the time, even though it is a tiny bit less random this way (but we already took that into account in entropy_per_char)
+
+    // see what the user thinks of this one
+    char ent_buf[24];
+    snprintf(ent_buf, sizeof(ent_buf), "%d", entropy_needed);
+    ent_buf[sizeof(ent_buf)-1] = '\0';
+    switch (get1char("Use "+pw+"\ntype "+type_name+", "+ent_buf+" bits of entropy [y/N/ /l/m/q/?] ? ", 'n')) {
+      case 'y': case 'Y':
+        return pw;
+      case 'q': case 'Q':
+        return "";
+      case ' ':
+        type++;
+        break;
+      case '-':
+        if (entropy_needed > 8*4)
+          entropy_needed -= 8*4;
+        // else you can't go any lower
+        break;
+      case '+': case '=':
+        entropy_needed += 8*4;
+        break;
+      case '?':
+        printf("Commands:\n"
+               "  Y      Yes, accept this password\n"
+               "  N      No, generate another password of same type\n"
+               "  <space> Cycle through password types\n"
+               "  +      Lower the needed entropy/password length\n"
+               "  -      More entropy/password length\n"
+               "  Q      Quit\n"
+               "  ?      Help\n");
+        continue;
+      // default: show another password
+    }
+  }
+}
+
+
+// print txt to outfile / copy to X selection
+static void emit(const secstring& name, const char*const what, const secstring& txt) {
+  if (arg_echo) {
+    if (isatty(fileno(outfile)))
+      fprintf(outfile,"%s for %s: ", what, name.c_str()); // if we are printing to the tty then we can be more verbose
+    fprintf(outfile,"%s\n", txt.c_str());
+  }
+#ifndef X_DISPLAY_MISSING
+  else if (arg_xclip) {
+    if (!xdisplay) // only open X once, since it is slow
+      xdisplay = XOpenDisplay(arg_display);
+
+    if (!xdisplay) {
+      fprintf(stderr,"Can't open display: %s\n", XDisplayName(arg_display));
+      throw FailEx();
+    }
+
+    static const Atom CLIPBOARD = XA_CLIPBOARD(xdisplay); // optimize by fetching this one only once
+
+    Atom xsel1 = 0, xsel2 = 0;
+    int num_sel = 1;
+    switch (tolower(arg_selection[0])) {
+      case 'b': case '0': xsel1 = XA_PRIMARY; xsel2 = CLIPBOARD; num_sel = 2; break;
+      case 'p': case '1': xsel1 = XA_PRIMARY; break;
+      case 's': case '2': xsel1 = XA_SECONDARY; break;
+      case 'c': xsel1 = CLIPBOARD; break;
+      default:
+        fprintf(stderr,"Unsupported selection: %s\n", arg_selection);
+        throw FailEx();
+    }
+    char* stxt1 = XGetAtomName(xdisplay,xsel1);
+    char* stxt2 = (xsel2?XGetAtomName(xdisplay,xsel2):NULL);
+
+    Window xwin = XCreateSimpleWindow(xdisplay, DefaultRootWindow(xdisplay), 0,0,1,1,0,0,0);
+    XSelectInput(xdisplay, xwin, PropertyChangeMask);
+    
+    { // the X11 ICCCM section 3.2.1 says we must synthesize an event in order to get a timestamp to use with XSetSelectionOwner() instead of using CurrentTime, so we will take the time from the WM_COMMAND event generated inside XSetWMProperties()
+      const char*const argv[2] = { program_name, NULL }; // lie about our argv so that we don't expose any semi-sensative commandline options
+      XTextProperty winname = { reinterpret_cast<unsigned char*>(const_cast<char*>(program_name)), XA_STRING, 8, strlen(program_name) };
+      XSetWMProperties(xdisplay, xwin, &winname,NULL, const_cast<char**>(argv),1, NULL,NULL,NULL); // also init's WM_CLIENT_MACHINE
+    }
+
+    Time timestamp = 0;
+    Window prev_requestor = 0, prevprev_requestor = 0;
+    while (xsel1 || xsel2) {
+      XEvent xev;
+      XNextEvent(xdisplay, &xev);
+ 
+      if (xev.type == PropertyNotify) {
+        if (!timestamp && xev.xproperty.window == xwin && xev.xproperty.state == PropertyNewValue && xev.xproperty.atom == XA_WM_COMMAND) {
+          timestamp = xev.xproperty.time; // save away the timestamp; that's all we really wanted
+          XSetSelectionOwner(xdisplay, xsel1, xwin, timestamp);
+          if (xsel2)
+            XSetSelectionOwner(xdisplay, xsel2, xwin, timestamp);
+          if (xsel2 && XGetSelectionOwner(xdisplay, xsel2) != xwin) {
+            fprintf(stderr, "Unable to own X selection %s\n", stxt2);
+            xsel2 = 0;
+            num_sel--;
+          }
+          if (XGetSelectionOwner(xdisplay, xsel1) != xwin) {
+            fprintf(stderr, "Unable to own X selection %s\n", stxt1);
+            xsel1 = xsel2;
+            if (stxt1) XFree(stxt1);
+            stxt1 = stxt2;
+            xsel2 = 0; stxt2 = NULL;
+            num_sel--;
+          }
+
+          // let the user know
+          if (arg_verbose>1) {
+            if (xsel1 && xsel2)
+              printf("X selections %s and %s contain %s for %s\n", stxt1, stxt2, what, name.c_str());
+            else if (xsel1)
+              printf("X selection %s contains %s for %s\n", stxt1, what, name.c_str());
+          } else {
+            if (xsel1 && xsel2)
+              printf("You are ready to paste the %s for %s from %s and %s\n", what, name.c_str(), stxt1, stxt2);
+            else if (xsel1)
+              printf("You are ready to paste the %s for %s from %s\n", what, name.c_str(), stxt1);
+          }
+        }
+      }
+      else if (xev.type == SelectionRequest) {
+        Atom prop = xev.xselectionrequest.property;
+        if (prop == None)
+          prop = xev.xselectionrequest.target; // an old-style client
+ 
+        bool fakeout = false;
+
+        // don't answer if the timestamp is too early or too late
+        if (!timestamp || (xev.xselectionrequest.time!=CurrentTime && xev.xselectionrequest.time < timestamp))
+          fakeout = true;
+        // don't answer if we don't actually own it
+        if ((!xsel1 || xev.xselectionrequest.selection != xsel1) && (!xsel2 || xev.xselectionrequest.selection != xsel2))
+          fakeout = true;
+        // don't answer if we aren't the owner
+        if (xev.xselectionrequest.owner != xwin)
+          fakeout = true;
+
+        if (!fakeout) {
+          // see what they want exactly
+          if (xev.xselectionrequest.target == XA_TARGETS(xdisplay)) {
+            // tell them what we can supply
+            const Atom targets[] = { XA_TARGETS(xdisplay), XA_TIMESTAMP(xdisplay), XA_TEXT(xdisplay), XA_STRING };
+            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TARGETS(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&targets), sizeof(targets)/sizeof(targets[0]));
+          }
+          else if (xev.xselectionrequest.target == XA_TIMESTAMP(xdisplay)) {
+            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TIMESTAMP(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&timestamp), 1);
+          }
+          else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
+              xev.xselectionrequest.target == XA_STRING) {
+            if (/*arg_verbose &&*/ xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
+              // be very verbose about who is asking for the selection---it could catch a clipboard sniffer
+              const char*const selection = xev.xselectionrequest.selection == xsel1 ? stxt1 : stxt2; // we know xselectionrequest.selection is xsel1 or xsel2 already, so no need to be more paranoid
+
+              // walk up the tree looking for a client window
+              Window w = xev.xselectionrequest.requestor;
+              while (true) {
+                XTextProperty tp = { value: NULL };
+                int rc = XGetTextProperty(xdisplay, w, &tp, XA_WM_COMMAND);
+                if (tp.value) XFree(tp.value), tp.value = NULL;
+                if (!rc) {
+                  rc = XGetWMName(xdisplay, w, &tp);
+                  if (tp.value) XFree(tp.value), tp.value = NULL;
+                }
+                if (rc)
+                  break;
+                Window p = XmuClientWindow(xdisplay, w);
+                if (w != p)
+                  break; // this means we've found it
+                Window parent;
+                Window root;
+                Window* children = NULL;
+                unsigned int numchildren;
+                if (XQueryTree(xdisplay, w, &root, &parent, &children, &numchildren) && children) // unfortunately you can't pass in NULLs to indicate you don't care about the children
+                  XFree(children);
+                if (parent == root)
+                  break; // we shouldn't go any further or we will read the properties of the root
+                w = parent;
+              }
+
+              const char* requestor = "<unknown>";
+              XTextProperty nm = { value: NULL };
+              if ((XGetWMName(xdisplay, w, &nm) && nm.encoding == XA_STRING && nm.format == 8 && nm.value) ||
+                  (((nm.value?(XFree(nm.value),nm.value=NULL):0), XGetTextProperty(xdisplay, w, &nm, XA_WM_COMMAND)) && nm.encoding == XA_STRING && nm.format == 8 && nm.value)) // try getting WM_COMMAND if we can't get WM_NAME
+                requestor = reinterpret_cast<const char*>(nm.value);
+  
+              const char* host = "<unknown>";
+              XTextProperty cm = { value: NULL };
+              if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
+                host = reinterpret_cast<const char*>(cm.value);
+ 
+              printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
+
+              if (nm.value) XFree(nm.value);
+              if (cm.value) XFree(cm.value);
+            }
+            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
+            prevprev_requestor = prev_requestor;
+            prev_requestor = xev.xselectionrequest.requestor;
+          }
+          else {
+            // a target I don't handle
+            fakeout = true;
+          }
+        }
+
+        if (fakeout)
+          prop = None; // indicate no answer
+
+        XEvent resp;
+        resp.xselection.property = prop;
+        resp.xselection.type = SelectionNotify;
+        resp.xselection.display = xev.xselectionrequest.display;
+        resp.xselection.requestor = xev.xselectionrequest.requestor;
+        resp.xselection.selection = xev.xselectionrequest.selection;
+        resp.xselection.target = xev.xselectionrequest.target;
+        resp.xselection.time = xev.xselectionrequest.time;
+        XSendEvent(xdisplay, xev.xselectionrequest.requestor, 0,0, &resp);
+      }
+      else if (xev.type == SelectionClear) {
+        // some other program is taking control of the selection, so we are done
+        bool done = true;
+        // don't answer if the timestamp is too early or too late
+        if (!timestamp || (xev.xselectionclear.time != CurrentTime && xev.xselectionclear.time < timestamp)) {
+          // ignore it; timestamp is out of bounds
+        } else {
+          if (xsel1 && xev.xselectionclear.selection == xsel1) {
+            if (xsel1 != CLIPBOARD && xsel2) { // a clipboard manager application will always take control of the XA_CLIPBOARD immediately, so don't worry about that
+              XSetSelectionOwner(xdisplay, xsel2, None, timestamp);
+              xsel2 = 0;
+            }
+            xsel1 = 0;
+          }
+          if (xsel1 && xev.xselectionclear.selection == xsel2) {
+            if (xsel2 != CLIPBOARD && xsel1) {
+              XSetSelectionOwner(xdisplay, xsel1, None, timestamp);
+              xsel1 = 0;
+            }
+            xsel2 = 0;
+          }
+        }
+      } else {
+        // it is some event we don't care about
+      }
+    }
+
+    if (arg_verbose>1) printf("X selection%s cleared\n",(num_sel>1?"s":""));
+
+    if (stxt1) XFree(stxt1);
+    if (stxt2) XFree(stxt2);
+  }
+#endif
+}
+
 
 // ---- Block class -------------------------------
 
@@ -1031,220 +1394,6 @@ bool DB::save() {
 }
 
 
-static void emit(const secstring& name, const char*const what, const secstring& txt) {
-  if (arg_echo) {
-    if (isatty(fileno(outfile)))
-      fprintf(outfile,"%s for %s: ", what, name.c_str()); // if we are printing to the tty then we can be more verbose
-    fprintf(outfile,"%s\n", txt.c_str());
-  }
-#ifndef X_DISPLAY_MISSING
-  else if (arg_xclip) {
-    if (!xdisplay) // only open X once, since it is slow
-      xdisplay = XOpenDisplay(arg_display);
-
-    if (!xdisplay) {
-      fprintf(stderr,"Can't open display: %s\n", XDisplayName(arg_display));
-      throw FailEx();
-    }
-
-    static const Atom CLIPBOARD = XA_CLIPBOARD(xdisplay); // optimize by fetching this one only once
-
-    Atom xsel1 = 0, xsel2 = 0;
-    int num_sel = 1;
-    switch (tolower(arg_selection[0])) {
-      case 'b': case '0': xsel1 = XA_PRIMARY; xsel2 = CLIPBOARD; num_sel = 2; break;
-      case 'p': case '1': xsel1 = XA_PRIMARY; break;
-      case 's': case '2': xsel1 = XA_SECONDARY; break;
-      case 'c': xsel1 = CLIPBOARD; break;
-      default:
-        fprintf(stderr,"Unsupported selection: %s\n", arg_selection);
-        throw FailEx();
-    }
-    char* stxt1 = XGetAtomName(xdisplay,xsel1);
-    char* stxt2 = (xsel2?XGetAtomName(xdisplay,xsel2):NULL);
-
-    Window xwin = XCreateSimpleWindow(xdisplay, DefaultRootWindow(xdisplay), 0,0,1,1,0,0,0);
-    XSelectInput(xdisplay, xwin, PropertyChangeMask);
-    
-    { // the X11 ICCCM section 3.2.1 says we must synthesize an event in order to get a timestamp to use with XSetSelectionOwner() instead of using CurrentTime, so we will take the time from the WM_COMMAND event generated inside XSetWMProperties()
-      const char*const argv[2] = { program_name, NULL }; // lie about our argv so that we don't expose any semi-sensative commandline options
-      XTextProperty winname = { reinterpret_cast<unsigned char*>(const_cast<char*>(program_name)), XA_STRING, 8, strlen(program_name) };
-      XSetWMProperties(xdisplay, xwin, &winname,NULL, const_cast<char**>(argv),1, NULL,NULL,NULL); // also init's WM_CLIENT_MACHINE
-    }
-
-    Time timestamp = 0;
-    Window prev_requestor = 0, prevprev_requestor = 0;
-    while (xsel1 || xsel2) {
-      XEvent xev;
-      XNextEvent(xdisplay, &xev);
- 
-      if (xev.type == PropertyNotify) {
-        if (!timestamp && xev.xproperty.window == xwin && xev.xproperty.state == PropertyNewValue && xev.xproperty.atom == XA_WM_COMMAND) {
-          timestamp = xev.xproperty.time; // save away the timestamp; that's all we really wanted
-          XSetSelectionOwner(xdisplay, xsel1, xwin, timestamp);
-          if (xsel2)
-            XSetSelectionOwner(xdisplay, xsel2, xwin, timestamp);
-          if (xsel2 && XGetSelectionOwner(xdisplay, xsel2) != xwin) {
-            fprintf(stderr, "Unable to own X selection %s\n", stxt2);
-            xsel2 = 0;
-            num_sel--;
-          }
-          if (XGetSelectionOwner(xdisplay, xsel1) != xwin) {
-            fprintf(stderr, "Unable to own X selection %s\n", stxt1);
-            xsel1 = xsel2;
-            if (stxt1) XFree(stxt1);
-            stxt1 = stxt2;
-            xsel2 = 0; stxt2 = NULL;
-            num_sel--;
-          }
-
-          // let the user know
-          if (arg_verbose>1) {
-            if (xsel1 && xsel2)
-              printf("X selections %s and %s contain %s for %s\n", stxt1, stxt2, what, name.c_str());
-            else if (xsel1)
-              printf("X selection %s contains %s for %s\n", stxt1, what, name.c_str());
-          } else {
-            if (xsel1 && xsel2)
-              printf("You are ready to paste the %s for %s from %s and %s\n", what, name.c_str(), stxt1, stxt2);
-            else if (xsel1)
-              printf("You are ready to paste the %s for %s from %s\n", what, name.c_str(), stxt1);
-          }
-        }
-      }
-      else if (xev.type == SelectionRequest) {
-        Atom prop = xev.xselectionrequest.property;
-        if (prop == None)
-          prop = xev.xselectionrequest.target; // an old-style client
- 
-        bool fakeout = false;
-
-        // don't answer if the timestamp is too early or too late
-        if (!timestamp || (xev.xselectionrequest.time!=CurrentTime && xev.xselectionrequest.time < timestamp))
-          fakeout = true;
-        // don't answer if we don't actually own it
-        if ((!xsel1 || xev.xselectionrequest.selection != xsel1) && (!xsel2 || xev.xselectionrequest.selection != xsel2))
-          fakeout = true;
-        // don't answer if we aren't the owner
-        if (xev.xselectionrequest.owner != xwin)
-          fakeout = true;
-
-        if (!fakeout) {
-          // see what they want exactly
-          if (xev.xselectionrequest.target == XA_TARGETS(xdisplay)) {
-            // tell them what we can supply
-            const Atom targets[] = { XA_TARGETS(xdisplay), XA_TIMESTAMP(xdisplay), XA_TEXT(xdisplay), XA_STRING };
-            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TARGETS(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&targets), sizeof(targets)/sizeof(targets[0]));
-          }
-          else if (xev.xselectionrequest.target == XA_TIMESTAMP(xdisplay)) {
-            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TIMESTAMP(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&timestamp), 1);
-          }
-          else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
-              xev.xselectionrequest.target == XA_STRING) {
-            if (/*arg_verbose &&*/ xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
-              // be very verbose about who is asking for the selection---it could catch a clipboard sniffer
-              const char*const selection = xev.xselectionrequest.selection == xsel1 ? stxt1 : stxt2; // we know xselectionrequest.selection is xsel1 or xsel2 already, so no need to be more paranoid
-
-              // walk up the tree looking for a client window
-              Window w = xev.xselectionrequest.requestor;
-              while (true) {
-                XTextProperty tp = { value: NULL };
-                int rc = XGetTextProperty(xdisplay, w, &tp, XA_WM_COMMAND);
-                if (tp.value) XFree(tp.value), tp.value = NULL;
-                if (!rc) {
-                  rc = XGetWMName(xdisplay, w, &tp);
-                  if (tp.value) XFree(tp.value), tp.value = NULL;
-                }
-                if (rc)
-                  break;
-                Window p = XmuClientWindow(xdisplay, w);
-                if (w != p)
-                  break; // this means we've found it
-                Window parent;
-                Window root;
-                Window* children = NULL;
-                unsigned int numchildren;
-                if (XQueryTree(xdisplay, w, &root, &parent, &children, &numchildren) && children) // unfortunately you can't pass in NULLs to indicate you don't care about the children
-                  XFree(children);
-                if (parent == root)
-                  break; // we shouldn't go any further or we will read the properties of the root
-                w = parent;
-              }
-
-              const char* requestor = "<unknown>";
-              XTextProperty nm = { value: NULL };
-              if ((XGetWMName(xdisplay, w, &nm) && nm.encoding == XA_STRING && nm.format == 8 && nm.value) ||
-                  (((nm.value?(XFree(nm.value),nm.value=NULL):0), XGetTextProperty(xdisplay, w, &nm, XA_WM_COMMAND)) && nm.encoding == XA_STRING && nm.format == 8 && nm.value)) // try getting WM_COMMAND if we can't get WM_NAME
-                requestor = reinterpret_cast<const char*>(nm.value);
-  
-              const char* host = "<unknown>";
-              XTextProperty cm = { value: NULL };
-              if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
-                host = reinterpret_cast<const char*>(cm.value);
- 
-              printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
-
-              if (nm.value) XFree(nm.value);
-              if (cm.value) XFree(cm.value);
-            }
-            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
-            prevprev_requestor = prev_requestor;
-            prev_requestor = xev.xselectionrequest.requestor;
-          }
-          else {
-            // a target I don't handle
-            fakeout = true;
-          }
-        }
-
-        if (fakeout)
-          prop = None; // indicate no answer
-
-        XEvent resp;
-        resp.xselection.property = prop;
-        resp.xselection.type = SelectionNotify;
-        resp.xselection.display = xev.xselectionrequest.display;
-        resp.xselection.requestor = xev.xselectionrequest.requestor;
-        resp.xselection.selection = xev.xselectionrequest.selection;
-        resp.xselection.target = xev.xselectionrequest.target;
-        resp.xselection.time = xev.xselectionrequest.time;
-        XSendEvent(xdisplay, xev.xselectionrequest.requestor, 0,0, &resp);
-      }
-      else if (xev.type == SelectionClear) {
-        // some other program is taking control of the selection, so we are done
-        bool done = true;
-        // don't answer if the timestamp is too early or too late
-        if (!timestamp || (xev.xselectionclear.time != CurrentTime && xev.xselectionclear.time < timestamp)) {
-          // ignore it; timestamp is out of bounds
-        } else {
-          if (xsel1 && xev.xselectionclear.selection == xsel1) {
-            if (xsel1 != CLIPBOARD && xsel2) { // a clipboard manager application will always take control of the XA_CLIPBOARD immediately, so don't worry about that
-              XSetSelectionOwner(xdisplay, xsel2, None, timestamp);
-              xsel2 = 0;
-            }
-            xsel1 = 0;
-          }
-          if (xsel1 && xev.xselectionclear.selection == xsel2) {
-            if (xsel2 != CLIPBOARD && xsel1) {
-              XSetSelectionOwner(xdisplay, xsel1, None, timestamp);
-              xsel1 = 0;
-            }
-            xsel2 = 0;
-          }
-        }
-      } else {
-        // it is some event we don't care about
-      }
-    }
-
-    if (arg_verbose>1) printf("X selection%s cleared\n",(num_sel>1?"s":""));
-
-    if (stxt1) XFree(stxt1);
-    if (stxt2) XFree(stxt2);
-  }
-#endif
-}
-
 bool DB::find(matches_t& matches, const char* regex_str /* might be NULL */) {
   if (arg_verbose) printf("searching %s for %s\n", dbname, regex_str?regex_str:"<all>");
 
@@ -1275,6 +1424,18 @@ bool DB::find(matches_t& matches, const char* regex_str /* might be NULL */) {
 }
 
 const DB::Entry& DB::find1(const char* regex) {
+  // first see if there is a perfect match for regex, treating regex as a literal string (and not a regex at all)
+  {
+    matches_t matches;
+    for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
+      const Entry& e = i->second;
+      if ((arg_casesensative ? strcmp(regex,e.name.c_str()) : strcasecmp(regex,e.name.c_str())) == 0)
+        matches.push_back(&e);
+    }
+    if (matches.size() == 1)
+      return *matches.front();
+  }
+
   matches_t matches;
   if (find(matches, regex)) {
     if (matches.size() == 0) {
@@ -1287,7 +1448,7 @@ const DB::Entry& DB::find1(const char* regex) {
       for (matches_t::const_iterator i=matches.begin(); i!=matches.end() && count < 3; ++i, ++count)
         printf("%s%s", (count?", ":""), (*i)->name.c_str());
       if (count != matches.size())
-        printf(",... ");
+        printf(", ... (%u more) ", matches.size()-3);
       printf(".\n");
       throw FailEx();
     }
@@ -1369,8 +1530,10 @@ void DB::add(const char* name /* might be NULL */) {
     Entry e;
     if (name)
       e.name = name;
-    while (e.name.empty()) {
-      e.name = gettxt("name: ");
+
+    while (true) {
+      if (e.name.empty())
+        e.name = gettxt("name: ");
 
       if (entries.find(e.name) != entries.end()) {
         fprintf(stderr,"%s already exists\n", e.name.c_str());
@@ -1378,13 +1541,33 @@ void DB::add(const char* name /* might be NULL */) {
           throw FailEx();
         else
           e.name.erase();
-      }
+      } else if (!e.name.empty())
+        break;
     }
 
     e.login = gettxt("username: ");
     if (e.login.empty())
       e.default_login = getyn("use default username ("+e.the_default_login+") ? [n] ", false);
-    e.password = getpw("password: ");
+
+    while (true) {
+      secstring pw1 = getpw("password: ");
+      if (pw1.empty()) {
+        if (getyn("Generate random password? [y] ", true)) {
+          e.password = random_password();
+          if (!e.password.empty())
+            break;
+          else
+            continue; // back to entering by hand for them (perhaps they want to copy only a subset of the original pw)
+        } // else let them have an empty password, though they'll have to enter it twice
+      }
+      secstring pw2 = getpw("password again: ");
+      if (pw1 == pw2) {
+        e.password = pw1;
+        break;
+      }
+      printf("Passwords do not match\n");
+    }
+          
     e.notes = gettxt("notes: ");
  
     entries.insert(entries_t::value_type(e.name,e));
@@ -1397,21 +1580,26 @@ void DB::edit(const char* regex) {
     const Entry& e_orig = find1(regex);
     Entry e = e_orig; // make a local copy to edit
 
-    e.name = gettxt("name: ["+e.name+"] ", e.name);
-    
+    while (true) {
+      e.name = gettxt("name: ["+e_orig.name+"] ", e_orig.name);
+      if (e.name == e_orig.name || entries.find(e.name) == entries.end()) // e.name cannot be empty b/c if the user entered an empty string they got the old name
+        break;
+      printf("%s already exists\n", e.name.c_str());
+    }
+ 
     if (e.default_login)
-      e.default_login = getyn("keep default username ("+e.the_default_login+") ? [y]", true);
+      e.default_login = getyn("keep default username ("+e_orig.the_default_login+") ? [y]", true);
     if (!e.default_login) {
-      e.login = gettxt("username: ["+e.login+"]", e.login);
+      e.login = gettxt("username: ["+e_orig.login+"] ", e_orig.login);
       if (e.login.empty() && !e_orig.default_login) // no point in asking if they just disabled default login
-        e.default_login = getyn("user default username ("+e.the_default_login+") ? [n]", false);
+        e.default_login = getyn("user default username ("+e_orig.the_default_login+") ? [n]", false);
     }
 
     secstring new_pw = getpw("password: [<keep same>] ");
     if (!new_pw.empty())
       e.password = new_pw;
 
-    e.notes = gettxt("notes: ", e.notes);
+    e.notes = gettxt("notes: [<keep same>] ", e_orig.notes);
 
     if (e_orig != e) {
       typedef std::vector<std::string> changes_t;
@@ -1436,8 +1624,11 @@ void DB::edit(const char* regex) {
         entries.erase(entries.find(e_orig.name));
         entries.insert(entries_t::value_type(e.name,e));
         changed = true;
-      }
+      } else
+        printf("Changes abandonned\n");
     }
+    else
+      printf("No change\n");
   }
 }
  
