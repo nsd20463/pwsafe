@@ -6,7 +6,7 @@ AC_PREREQ(2.5)
 AC_INIT(pwsafe.cpp)
 
 dnl Every other copy of the package version number gets its value from here
-AM_INIT_AUTOMAKE(pwsafe, 0.1.5)
+AM_INIT_AUTOMAKE(pwsafe, 0.1.6)
 
 dnl create a config.h file (Automake will add -DHAVE_CONFIG_H)
 AM_CONFIG_HEADER(config.h)

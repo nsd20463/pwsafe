@@ -3,6 +3,10 @@
         * pwsafe: you can now end the X selection
           paste pressing any key. You can still, as
           always, end it by selecting something.
+        * pwsafe: fixed up build on MacOSX (sysconf(_SC_PAGEZIZE)
+          doesn't exist) and freebsd (readline.h declares
+          most things correctly, but not the callbacks)
+        * pwsafe: release 0.1.6
 
 2004-02-25  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
