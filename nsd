@@ -1,0 +1,45 @@
+#!/bin/sh -x
+# scripts for the maintainer
+
+case $1 in
+  prep)
+    aclocal && autoheader && automake && autoconf && ./configure --enable-debug
+    ;;
+  compile)
+    $0 prep
+    make clean
+    if ! make check; then
+     exit 1
+    fi
+    make distclean
+    rm -rf autom4te.cache
+    $0 recompile
+    ;;
+  recompile)
+    TGZ=pwsafe.tgz
+    tar czvf /tmp/$TGZ .
+    scp /tmp/$TGZ ndade@cf-shell.sourceforge.net:$TGZ
+    rm /tmp/$TGZ
+
+    # some hosts need custom stuff passed in to ./configure
+    ppc_osx1_conf="--without-readline"
+    sparc_solaris1="--without-readline"
+    x86_netbsd1="--without-readline"
+ 
+    for host in alpha-linux1 amd64-linux1 ppc-osx1 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1 x86-openbsd1; do
+      RSH="ssh -lndade cf-shell.sourceforge.net ssh $host"
+      DIR=$host
+      CONF="`echo $host|tr -- - _`_conf"
+      $RSH rm -rf $DIR
+      $RSH mkdir -p $DIR
+      $RSH "gunzip <$TGZ | tar xf - -C $DIR"
+      $RSH "cd $DIR && ./configure ${!CONF-}"
+      $RSH "cd $DIR && gmake check"
+    done
+    ;;
+  *)
+    echo "Usage $0 (prep|recompile|compile)"
+    exit 1
+esac
+
+
