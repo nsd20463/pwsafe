@@ -1564,8 +1564,10 @@ static void emit(const secstring& name, const char*const what, const secstring& 
               if (nm.value) XFree(nm.value);
               if (cm.value) XFree(cm.value);
 
-              if (!fakeout) 
+              if (!fakeout) {
                 XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
+                done = true;
+              }
 
               prevprev_requestor = prev_requestor;
               prev_requestor = xev.xselectionrequest.requestor;
@@ -1578,8 +1580,6 @@ static void emit(const secstring& name, const char*const what, const secstring& 
 
           if (fakeout)
             prop = None; // indicate no answer
-          else
-            done = true;
 
           XEvent resp;
           resp.xselection.property = prop;
