@@ -62,6 +62,7 @@ AC_CHECK_FUNC(getopt_long, [], [AC_MSG_ERROR(getopt_long() is needed)])
 AC_CHECK_FUNC(tcsetattr, [], [AC_MSG_ERROR(tcsetattr() is needed)])
 AC_CHECK_FUNC(readline, [], [AC_MSG_ERROR(readline() is needed)])
 
+
 dnl older readline.h's declared readline() without any arguments and outside of 'extern "C"', which freaks out C++
 AC_LANG_PUSH(C++)
 AC_MSG_CHECKING([if readline.h needs extern "C"])
@@ -73,9 +74,9 @@ AC_COMPILE_IFELSE(
     [[char*x=readline("test"); 
       return (x?0:1);]]
   )],
-  [AC_MSG_RESULT(yes)], 
+  [AC_MSG_RESULT(no)], 
   [AC_DEFINE(READLINE_H_NEEDS_EXTERN_C, 1, [Define to 1 if readline/readline.h needs extern "C"]) 
-   AC_MSG_RESULT(no)])
+   AC_MSG_RESULT(yes)])
 AC_LANG_POP(C++)
 
 
