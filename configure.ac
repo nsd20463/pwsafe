@@ -131,7 +131,7 @@ fi
 
 
 if test "$with_readline" != no; then
-dnl slightly newer but still broken readline.h's use extern "C" but don't declare arguments, so C++ freaks out because of the lack of 'const'ness
+dnl slightly newer but still broken readline.h's use extern "C" but don't declare arguments as const
 AC_LANG_PUSH(C++)
 AC_MSG_CHECKING([if readline.h lacks 'const' in its declarations])
 AC_COMPILE_IFELSE(
@@ -146,10 +146,8 @@ extern "C" {
 } // terminate extern "C"
 #endif
 
-char* dummy_completion(const char*, int) { return 0; }
     ]],[[
   const char* prompt = "abc";
-  rl_completion_entry_function = dummy_completion;
   char*x = readline(prompt);
     ]]
   )],
@@ -158,6 +156,41 @@ char* dummy_completion(const char*, int) { return 0; }
    AC_MSG_RESULT(yes)])
 AC_LANG_POP(C++)
 fi
+
+if test "$with_readline" != no; then
+dnl some other broken readline.h's use extern "C" and declare arguments for most everything, except for the callback functions
+AC_LANG_PUSH(C++)
+AC_MSG_CHECKING([if readline.h lacks types in its declaration of callbacks])
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM(
+    [[
+#include <stdio.h>
+#if READLINE_H_NEEDS_EXTERN_C
+extern "C" {
+#endif
+#include <readline/readline.h>
+#if READLINE_H_NEEDS_EXTERN_C
+} // terminate extern "C"
+#endif
+
+#ifdef READLINE_H_USES_NO_CONST
+char* dummy_completion(char*, int) { return 0; }
+#else
+char* dummy_completion(const char*, int) { return 0; }
+#endif
+    ]],[[
+  rl_completion_entry_function = dummy_completion;
+    ]]
+  )],
+  [AC_MSG_RESULT(no)],
+  [AC_DEFINE(READLINE_H_LACKS_TYPES_FOR_CALLBACKS, 1, [Define to 1 if readline/readline.h lacks proper declarations for callbacks])
+   AC_MSG_RESULT(yes)])
+AC_LANG_POP(C++)
+fi
+
+      
+      
+
 
 
 dnl different versions of g++ implement allocators differently. Figure out what kind this g++ uses.

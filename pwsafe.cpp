@@ -765,17 +765,20 @@ static const char* pwsafe_strerror(int err) {
 }
 
 #if WITH_READLINE
+// there are 4 variations of readline.h out there, each of which needs a different declaration to compile cleanly
 #if READLINE_H_NEEDS_EXTERN_C
 extern "C" {
-  static dummy_completion() // more hack job to keep compile warnings away
+  static dummy_completion()
+#elif READLINE_H_LACKS_TYPES_FOR_CALLBACKS
+  static int dummy_completion()
 #elif READLINE_H_USES_NO_CONST
-static char* dummy_completion(char*, int)
+  static char* dummy_completion(char*, int)
 #else
-static char* dummy_completion(const char*, int)
+  static char* dummy_completion(const char*, int)
 #endif
-{
-  return 0;
-}
+  {
+    return 0;
+  }
 #if READLINE_H_NEEDS_EXTERN_C
 } // extern "C"
 #endif
@@ -2238,7 +2241,7 @@ secalloc::secalloc() {
 
 void secalloc::init() {
   if (pagesize == 0) { // initialize pagesize the first time we are called
-    pagesize = sysconf(_SC_PAGESIZE);
+    pagesize = getpagesize();
   
     if (pagesize == (size_t)-1 || pagesize == 0) {
       const char errstr[] = "Error: can't compute kernel MMU page size\n";
