@@ -6,6 +6,7 @@ HOW TO BUILD FROM SOURCE TARBALL
    cd <dir>
    ./configure
    make
+   make check     # to be sure it's working
    make install
    
 And for the secure memory allocation to work, pwsafe must be install suid root
