@@ -29,7 +29,7 @@ libreadline (which pulls in lib[n]curses) and openssl's libcrypto.
 
 pwsafe builds cleanly on various linuxes (i386, sparc32, sparc64, alpha/debian
 stable, debian unstable, redhat 8.0, 7.2, 6.2) with various g++ versions 
-(3.3.3, 3.2, 3.1, 2.95, 2.96 and even egcs-2.91).
+(3.4.2, 3.3.3, 3.2, 3.1, 2.95, 2.96 and even egcs-2.91).
 
 pwsafe builds on NetBSD 1.6.1 if you use --without-readline (or go install libreadline
 first) and gmake.
