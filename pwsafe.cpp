@@ -982,7 +982,10 @@ static secstring random_password() {
     char ent_buf[24];
     snprintf(ent_buf, sizeof(ent_buf), "%d", entropy_needed);
     ent_buf[sizeof(ent_buf)-1] = '\0';
-    switch (get1char("Use "+pw+"\ntype "+type_name+", "+ent_buf+" bits of entropy [y/N/ /+/-/q/?] ? ", 'n')) {
+    char len_buf[24];
+    snprintf(len_buf, sizeof(len_buf), "%d", pw.length());
+    len_buf[sizeof(len_buf)-1] = '\0';
+    switch (get1char("Use "+pw+"\ntype "+type_name+", length "+len_buf+", "+ent_buf+" bits of entropy [y/N/ /+/-/q/?] ? ", 'n')) {
       case 'y': case 'Y':
         return pw;
       case 'q': case 'Q':
@@ -991,12 +994,17 @@ static secstring random_password() {
         type++;
         break;
       case '-':
-        if (entropy_needed > 8*4)
-          entropy_needed -= 8*4;
+        if (entropy_needed > 64)
+          entropy_needed -= 32;
+        else if (entropy_needed > 32)
+          entropy_needed -= 8;
         // else you can't go any lower
         break;
       case '+': case '=':
-        entropy_needed += 8*4;
+        if (entropy_needed < 64)
+          entropy_needed += 8;
+        else
+          entropy_needed += 32;
         break;
       case '?':
         printf("Commands:\n"
