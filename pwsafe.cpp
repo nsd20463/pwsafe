@@ -153,6 +153,7 @@ bool arg_password = false;
 bool arg_details = false;
 int arg_verbose = 0;
 int arg_debug = 0;
+bool arg_csh = false;
 #ifndef X_DISPLAY_MISSING
 bool arg_xclip = false;
 const char* arg_display = NULL;
@@ -185,6 +186,7 @@ static long_option const long_options[] =
   {"display", required_argument, 0,'d'},
   {"selection", required_argument, 0,'s'},
 #endif
+  {"csh", no_argument, 0,'C'&31}, // ctrl-c
   // standard stuff
   {"verbose", no_argument, 0, 'v'},
   {"help", no_argument, 0, 'h'},
@@ -432,6 +434,13 @@ int main(int argc, char **argv) {
         // (so you can ln pwsafe pwsafe-agent)
         if (strstr(program_name, "-agent"))
           arg_op = OP_AGENT;
+
+        // if $SHELL ends in "csh" then assume --csh
+        {
+          const char* s = getenv("SHELL");
+          if (s && strlen(s) >= 3 && strcmp(s+strlen(s)-3, "csh") == 0)
+            arg_csh = true;
+        }
       }
 
       int idx = parse(argc, argv);
@@ -610,7 +619,7 @@ int main(int argc, char **argv) {
 
           int sock = socket(PF_UNIX, SOCK_STREAM, 0);
           if (sock < 0) {
-            fprintf(stderr, "Can't open socket: %s\n", strerror(errno));
+            fprintf(stderr, "Can't create socket: %s\n", strerror(errno));
             throw FailEx();
           }
 
@@ -624,6 +633,7 @@ int main(int argc, char **argv) {
           memset(&sun,0,sizeof(sun));
           sun.sun_family = AF_UNIX;
           strncpy(sun.sun_path, sockname.c_str(), sizeof(sun.sun_path));
+          sun.sun_path[sizeof(sun.sun_path)-1] = '\0';
           if (bind(sock, (struct sockaddr*)&sun, sizeof(sun))) {
             fprintf(stderr, "Can't bind socket to %s: %s\n", sockname.c_str(), strerror(errno));
             close(sock);
@@ -640,7 +650,7 @@ int main(int argc, char **argv) {
             // don't fork if we're debugging
             pid = getpid();
           else
-            pid_t pid = fork();
+            pid = fork();
           if (pid) {
             if (arg_csh)
               printf("setenv PWSAFE_AUTH_SOCK %s;\n"
@@ -651,7 +661,7 @@ int main(int argc, char **argv) {
                      "PWSAFE_AGENT_PID=%d; export PWSAFE_AGENT_PID;\n"
                      "echo Agent pid %d\n", sockname.c_str(), pid, pid);
           }
-          if (arg_debug || !pid) 
+          if (!pid || arg_debug) 
             agent(sock, sockname, sockpath);
           // else we are done
           close(sock);
@@ -762,6 +772,9 @@ static int parse(int argc, char **argv) {
         else
           usage(true);
         break;
+      case 'C'&31:
+        arg_csh = true;
+        break;
       case 'f':
         arg_dbname = optarg;
         break;
@@ -847,6 +860,7 @@ static void usage(bool fail) {
         "  -d, --display=XDISPLAY     override $DISPLAY (implies -x)\n"
         "  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x)\n"
 #endif
+        "  --csh                      emit csh commands\n"
         "  -v, --verbose              print more information (can be repeated)\n"
         "  -h, --help                 display this help and exit\n"
         "  -V, --version              output version information and exit\n"
@@ -2417,6 +2431,9 @@ static void cleanup_agent(int) {
   agent_exit = true;
 }
 
+static void agent_handle_client(const int sock) {
+}
+
 static void agent(const int sock, const std::string& sockname, const std::string& sockdir) {
   if (outfile) {
     fclose(outfile);
@@ -2445,13 +2462,22 @@ static void agent(const int sock, const std::string& sockname, const std::string
   signal(SIGHUP, cleanup_agent);
   signal(SIGTERM, cleanup_agent);
 
+#if HAVE_SCM_CREDENTIALS
+  {
+    int one = 1;
+    setsockopt(sock, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+  }
+#endif
+
   while (!agent_exit) {
     sockaddr sa;
-    sockaddr_un& un = sa;
+    sockaddr_un& un = reinterpret_cast<sockaddr_un&>(sa);
     socklen_t slen = sizeof(sa);
     const int s = accept(sock, &sa, &slen);
     if (s >= 0) {
       if (sa.sa_family == AF_UNIX) {
+#if HAVE_SCM_CREDENTIALS
+        // check who it is who is calling. We want the same exe, uid and gid (though root of course can fake this)
         ucred c;
         socklen_t clen = sizeof(c);
         if (!getsockopt(s, SOL_SOCKET, SO_PEERCRED, &c, &clen) &&
@@ -2464,19 +2490,22 @@ static void agent(const int sock, const std::string& sockname, const std::string
           char exe[1024];
           snprintf(exe,sizeof(exe),"/proc/%d/exe",c.pid);
           char bin[1024];
-          if (readlink(exe, buf, sizeof(buf)) > 0) {
+          if (readlink(exe, bin, sizeof(bin)) > 0) {
             snprintf(exe,sizeof(exe),"/proc/%d/exe",getpid());
             char us[1024];
             if (readlink(exe, us, sizeof(us)) > 0) {
               if (strcmp(bin, us) == 0) {
                 // ok, we like this client
-                
-                  
+                agent_handle_client(s);
               }
             }
           }
         }
       }
+#else
+      // we can't test much about the client, so assume they are good if they could open the socket
+      agent_handle_client(s);
+#endif
       close(s);
     } else if (errno != EINTR)
       break;
