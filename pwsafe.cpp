@@ -21,12 +21,22 @@
 
 */
 
+#include <sys/types.h>
+#include "system.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#if HAVE_UNISTD_H
 #include <unistd.h>
-#include <sys/types.h>
+#endif
+#if HAVE_FCNTL_H
+#include <fcntl.h>
+#endif
+#if HAVE_SIGNAL_H
+#include <signal.h>
+#endif
 #include <getopt.h>
 #include <errno.h>
 #include <pwd.h>
@@ -40,23 +50,26 @@
 #include <algorithm>
 #include <memory>
 
-#include "system.h"
 
 #include <termios.h>
 
+#if WITH_READLINE
 // fix a few things that system.h setup and that readline.h isn't going to like
 #undef ISDIGIT
 #undef IN_CTYPE_DOMAIN
-
-#ifdef READLINE_H_NEEDS_EXTERN_C
+#if READLINE_H_NEEDS_EXTERN_C
 extern "C" {
 #endif
 #include <readline/readline.h>
-#ifdef READLINE_H_NEEDS_EXTERN_C
+#if READLINE_H_NEEDS_EXTERN_C
 } // terminate extern "C"
 #endif
 
 #include <curses.h>
+#else
+// our cheap substitute for readline
+static char* readline(const char*);
+#endif // WITH_READLINE
 
 #include <netinet/in.h> // for ntohl() to figure out the endianess
 
@@ -73,7 +86,7 @@ extern "C" {
 #endif
 
 // The name the program was run with, stripped of any leading path
-const char *program_name;
+const char *program_name = "pwsafe"; // make sure program_name always points to something valid so we can use it in constructors of globals
 uid_t saved_uid;
 gid_t saved_gid;
 
@@ -132,7 +145,8 @@ static struct option const long_options[] =
 // an (SGI style) allocator class that allocates from secure (non-swapable) storage
 class secalloc {
 public:
-  static const size_t pagesize;
+  static size_t pagesize;
+  const static size_t alignsize;
 private:
   struct Pool {
     Pool* next;
@@ -144,8 +158,8 @@ private:
   };
   static Pool* pools;
 public:
-  secalloc(size_t initial_pool=0);
-  ~secalloc() { cleanup(); }
+  explicit secalloc();
+  static void init();
   static void cleanup();
   static void* allocate(size_t);
   static void deallocate(void*, size_t);
@@ -153,18 +167,25 @@ public:
 
   bool operator==(const secalloc&) const { return true; }
   bool operator!=(const secalloc&) const { return false; }
-};
 
-#ifndef BASIC_STRING_USES_SGI_STYLE_ALLOCATOR
+  // a struct that takes care of calling secalloc::cleanup() when it is destroyed (usefull to ensure that cleanup() is always called)
+  struct Cleanup {
+    Cleanup() { secalloc::init(); }
+    ~Cleanup() { secalloc::cleanup(); }
+  };
+};
+static secalloc::Cleanup cleanup_secalloc; // so secalloc::cleanup() is always called. Carefull, this must be the first global object so that global secstrings are destroyed first
+
+#if BASIC_STRING_USES_SGI_STYLE_ALLOCATOR
+// basic_string uses an SGI style allocator, so pass it ours
+typedef secalloc secstring_alloc;
+#else
 // g++ 3.[1-3] uses a different allocator style where the allocators are per-type
 // we must wrap our secalloc with their interface to get an allocator suitable for
 // std::basic_string. All this is getting very complicated...and might even break
 // in g++ 3.4, or so the documentation hints. And g++ 3.0 was way too broken and
 // is not supported.
 typedef std::__allocator<char,secalloc> secstring_alloc;
-#else
-// basic_string uses an SGI style allocator, so pass it ours
-typedef secalloc secstring_alloc;
 #endif
 
 // a string class for handling strings that must not be swapped out---we use the secure allocator
@@ -184,7 +205,9 @@ static inline bool getyn(const std::string& prompt, int dev_val=-1) { return get
 static inline bool getyn(const secstring& prompt, int dev_val=-1) { return get1char(prompt.c_str(), dev_val); }
 
 struct FailEx {}; // thrown to unwind, cleanup and cause main to return 1
-  
+struct ExitEx { const int rc; explicit ExitEx(int c) : rc(c) {} }; // thrown to unwind and exit() with rc
+
+
 // a blowfish data block (8 bytes)
 class Block {
 private:
@@ -209,7 +232,6 @@ public:
 };
   
 
-
 class DB {
 private:
   // the file header, which is kept in secalloc just the secstrings
@@ -220,7 +242,7 @@ private:
     unsigned char iv[8];
 
     Header();
-    virtual ~Header();
+    ~Header();
     void zero();
     bool create();
     bool resalt();
@@ -239,7 +261,7 @@ private:
     BF_KEY bf;
 
     Context(const Header&, const secstring& pw);
-    virtual ~Context();
+    ~Context();
 
     // overload new and delete so Context is kept in secalloc's memory
     void* operator new(size_t n) { return secalloc::allocate(n); }
@@ -311,222 +333,228 @@ public:
 
 
 int main(int argc, char **argv) {
+  program_name = strrchr(argv[0], '/');
+  if (!program_name)
+    program_name = argv[0];
+  else
+    program_name++;
+
   try {
-    saved_uid = geteuid();
-    saved_gid = getegid();
-    
-    // if we are running suid, drop privileges now; we use seteuid() instead of setuid() so the saved uid remains root and we can become root again in order to mlock()
-    if (saved_uid != getuid() || saved_gid != getgid()) {
-      setegid(getgid());
-      seteuid(getuid());
-    }
-
-    program_name = strrchr(argv[0], '/');
-    if (!program_name)
-      program_name = argv[0];
-    else
-      program_name++;
-
-    rl_readline_name = const_cast<char*>(program_name); // so readline() can parse its config files and handle if (pwsafe) sections; some older readline's type rl_readline_name as char*, hence the const_cast
-
-    secalloc allocator; // so secalloc::cleanup() is always called
-
-    // be nice and paranoid
-    umask(0077);
-
-
-    // init some arguments
-    {
-      const char* home = getenv("HOME");
-      if (home) {
-        const char* defname = "/.pwsafe.dat";
-        char* dbname = reinterpret_cast<char*>(malloc(strlen(home)+strlen(defname)+1));
-        strcpy(dbname, home);
-        strcat(dbname, defname);
-        arg_dbname = dbname;
+    try {
+      saved_uid = geteuid();
+      saved_gid = getegid();
+      
+      // if we are running suid, drop privileges now; we use seteuid() instead of setuid() so the saved uid remains root and we can become root again in order to mlock()
+      if (saved_uid != getuid() || saved_gid != getgid()) {
+        setegid(getgid());
+        seteuid(getuid());
       }
 
-#ifndef X_DISPLAY_MISSING
-      if (isatty(STDOUT_FILENO) && (arg_display = XDisplayName(NULL)))
-        arg_xclip = true;
-      else
-#endif
-        arg_echo = true;
-    }
+#if WITH_READLINE
+      rl_readline_name = const_cast<char*>(program_name); // so readline() can parse its config files and handle if (pwsafe) sections; some older readline's type rl_readline_name as char*, hence the const_cast
+#endif // WITH_READLINE
 
-    int idx = parse(argc, argv);
- 
-    if (arg_op == OP_NOP)
-      // assume --list
-      arg_op = OP_LIST;
+      // be nice and paranoid
+      umask(0077);
 
-    if (arg_op == OP_LIST && (arg_username || arg_password))
-      // this is actually an OP_EMIT and not an OP_LIST
-      arg_op = OP_EMIT;
-    
-    if (idx != argc) {
-      if ((arg_op == OP_LIST || arg_op == OP_EMIT || arg_op == OP_ADD || arg_op == OP_EDIT || arg_op == OP_DELETE) && idx+1 == argc) {
-        arg_name = argv[idx];
-      } else {
-        fprintf(stderr, "%s - Too many arguments\n", program_name);
-        usage(true);
-      }
-    }
-
-    if (!arg_dbname) {
-      // $HOME wasn't set and -f wasn't used; we have no idea what we should be opening
-      fprintf(stderr, "$HOME wasn't set; --file must be used\n");
-      throw FailEx();
-    }
-
-    if (!arg_name && (arg_op == OP_EMIT || arg_op == OP_EDIT || arg_op == OP_DELETE)) {
-      fprintf(stderr, "An entry must be specified\n");
-      throw FailEx();
-    }
-
-    if (arg_name && !arg_casesensative) {
-      // automatically be case sensative of arg_name contains any uppercase chars
-      const char* p = arg_name;
-      while (*p)
-        if (isupper(*p++)) {
-          arg_casesensative = true;
-          break;
-        }
-    }
-
-#ifndef X_DISPLAY_MISSING
-    if (arg_xclip && !XDisplayName(arg_display)) {
-      fprintf(stderr, "$DISPLAY isn't set; use --display\n");
-      throw FailEx();
-    }
-#endif
-
-    // if arg_output was given, use that
-    if (arg_output) {
-      outfile = fopen(arg_output,"w");
-    } else if (!isatty(STDOUT_FILENO) && isatty(STDERR_FILENO)) {
-      // if stdout is not a tty but stderr is, use stderr to interact with the user, but still write the output to stdout
-      dup2(STDOUT_FILENO,3);
-      dup2(STDERR_FILENO,STDOUT_FILENO);
-      outfile = fdopen(3,"w");
-    } else {
-      // use stdout
-      outfile = fdopen(dup(STDOUT_FILENO),"w");
-    }
-    if (!outfile) {
-      fprintf(stderr, "Can't open %s: %s\n", arg_output, strerror(errno));
-      throw FailEx();
-    }
-
-    // seed the random number generator
-    char rng_filename[1024];
-    if (RAND_file_name(rng_filename,sizeof(rng_filename))) {
-      int rc = RAND_load_file(rng_filename,-1);
-      if (rc) {
-        if (arg_verbose) printf("rng seeded with %d bytes from %s\n", rc, rng_filename);
-      } else {
-        fprintf(stderr, "WARNING: %s unable to seed rng from %s\n", program_name, rng_filename);
-      }
-    } else {
-      fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
-    }
-
-#ifndef X_DISPLAY_MISSING
-    if (arg_verbose && (arg_password || arg_username) && (arg_echo || arg_xclip))
-      printf("Going to copy %s to %s\n", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
-#else
-    if (arg_verbose && (arg_password || arg_username) && (arg_echo))
-      printf("Going to copy %s to %s\n", arg_password&&arg_username?"login and password":arg_password?"password":"login", "stdout");
-#endif
-    DB::Init();
-
-    switch (arg_op) {
-    case OP_NOP:
-      fprintf (stderr, "%s - No command specified\n", program_name);
-      usage(true);
-      break;
-    case OP_CREATEDB:
-      DB::createdb(arg_dbname);
-      break;
-    case OP_PASSWD:
-    case OP_LIST:
-    case OP_EMIT:
-    case OP_ADD:
-    case OP_EDIT:
-    case OP_DELETE:
+      // init some arguments
       {
-        DB db(arg_dbname);
-        try {
-          switch (arg_op) {
-          case OP_PASSWD:
-            db.passwd();
-            break;
-          case OP_LIST:
-            db.list(arg_name);
-            break;
-          case OP_EMIT:
-            db.emit(arg_name, arg_username, arg_password);
-            break;
-          case OP_ADD:
-            db.add(arg_name);
-            if (!arg_name) {
-              // let them add more than one without having to reenter the passphrase
-              while (getyn("Add another? [n] ", false))
-                db.add(NULL);
-            }
-            break;
-          case OP_EDIT:
-            db.edit(arg_name);
-            break;
-          case OP_DELETE:
-            db.del(arg_name);
-            break;
-          }
-
-          // backup and save if changes have occured
-          if (db.is_changed()) {
-            if (arg_verbose) printf("Saving changes to %s\n", db.dbname);
-            if (!(db.backup() && db.save()))
-              throw FailEx();
-          }
-            
-        } catch (const FailEx&) {
-          // try and restore database from backup if a backup was successfully created
-          db.restore();
-          throw;
+        const char* home = getenv("HOME");
+        if (home) {
+          const char* defname = "/.pwsafe.dat";
+          char* dbname = reinterpret_cast<char*>(malloc(strlen(home)+strlen(defname)+1));
+          strcpy(dbname, home);
+          strcat(dbname, defname);
+          arg_dbname = dbname;
         }
-      }
-      break;
-    }
 
 #ifndef X_DISPLAY_MISSING
-    if (xdisplay)
-      XCloseDisplay(xdisplay);
+        if (isatty(STDOUT_FILENO) && (arg_display = XDisplayName(NULL)))
+          arg_xclip = true;
+        else
 #endif
-    if (outfile)
-      if (fclose(outfile)) {
-        fprintf(stderr, "Can't write/close output: %s", strerror(errno));
-        outfile = NULL;
+          arg_echo = true;
+      }
+
+      int idx = parse(argc, argv);
+   
+      if (arg_op == OP_NOP)
+        // assume --list
+        arg_op = OP_LIST;
+
+      if (arg_op == OP_LIST && (arg_username || arg_password))
+        // this is actually an OP_EMIT and not an OP_LIST
+        arg_op = OP_EMIT;
+      
+      if (idx != argc) {
+        if ((arg_op == OP_LIST || arg_op == OP_EMIT || arg_op == OP_ADD || arg_op == OP_EDIT || arg_op == OP_DELETE) && idx+1 == argc) {
+          arg_name = argv[idx];
+        } else {
+          fprintf(stderr, "%s - Too many arguments\n", program_name);
+          usage(true);
+        }
+      }
+
+      if (!arg_dbname) {
+        // $HOME wasn't set and -f wasn't used; we have no idea what we should be opening
+        fprintf(stderr, "$HOME wasn't set; --file must be used\n");
         throw FailEx();
       }
 
-    // save the rng seed for next time
-    if (rng_filename[0]) {
-      int rc = RAND_write_file(rng_filename);
-      if (arg_verbose) printf("Wrote %d bytes to %s\n", rc, rng_filename);
-    } // else they already got an error above
- 
-    return 0;
-    
-  } catch (const FailEx&) {
+      if (!arg_name && (arg_op == OP_EMIT || arg_op == OP_EDIT || arg_op == OP_DELETE)) {
+        fprintf(stderr, "An entry must be specified\n");
+        throw FailEx();
+      }
+
+      if (arg_name && !arg_casesensative) {
+        // automatically be case sensative of arg_name contains any uppercase chars
+        const char* p = arg_name;
+        while (*p)
+          if (isupper(*p++)) {
+            arg_casesensative = true;
+            break;
+          }
+      }
+
+#ifndef X_DISPLAY_MISSING
+      if (arg_xclip && !XDisplayName(arg_display)) {
+        fprintf(stderr, "$DISPLAY isn't set; use --display\n");
+        throw FailEx();
+      }
+#endif
+
+      // jimmy around stdout and outfile so they are intelligently selected
+      // what we want is usages like "pwsafe | less" to work correctly
+      if (arg_output) {
+        outfile = fopen(arg_output,"w");
+      } else if (!isatty(STDOUT_FILENO) && isatty(STDERR_FILENO)) {
+        // if stdout is not a tty but stderr is, use stderr to interact with the user, but still write the output to stdout
+        dup2(STDOUT_FILENO,3);
+        dup2(STDERR_FILENO,STDOUT_FILENO);
+        outfile = fdopen(3,"w");
+      } else {
+        // use stdout
+        outfile = fdopen(dup(STDOUT_FILENO),"w");
+      }
+      if (!outfile) {
+        fprintf(stderr, "Can't open %s: %s\n", arg_output, strerror(errno));
+        throw FailEx();
+      }
+      // from this point on stdout points to something we can interact with the user on, and outfile points to where we should put our output
+      
+
+      // seed the random number generator
+      char rng_filename[1024];
+      if (RAND_file_name(rng_filename,sizeof(rng_filename))) {
+        int rc = RAND_load_file(rng_filename,-1);
+        if (rc) {
+          if (arg_verbose) printf("rng seeded with %d bytes from %s\n", rc, rng_filename);
+        } else {
+          fprintf(stderr, "WARNING: %s unable to seed rng from %s\n", program_name, rng_filename);
+        }
+      } else {
+        fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
+      }
+
+#ifndef X_DISPLAY_MISSING
+      if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo || arg_xclip))
+        printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
+#else
+      if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo))
+        printf("Going to print %s to stdout\n", arg_password&&arg_username?"login and password":arg_password?"password":"login");
+#endif
+      DB::Init();
+
+      switch (arg_op) {
+      case OP_NOP:
+        fprintf (stderr, "%s - No command specified\n", program_name);
+        usage(true);
+        break;
+      case OP_CREATEDB:
+        DB::createdb(arg_dbname);
+        break;
+      case OP_PASSWD:
+      case OP_LIST:
+      case OP_EMIT:
+      case OP_ADD:
+      case OP_EDIT:
+      case OP_DELETE:
+        {
+          DB db(arg_dbname);
+          try {
+            switch (arg_op) {
+            case OP_PASSWD:
+              db.passwd();
+              break;
+            case OP_LIST:
+              db.list(arg_name);
+              break;
+            case OP_EMIT:
+              db.emit(arg_name, arg_username, arg_password);
+              break;
+            case OP_ADD:
+              db.add(arg_name);
+              if (!arg_name) {
+                // let them add more than one without having to reenter the passphrase
+                while (getyn("Add another? [n] ", false))
+                  db.add(NULL);
+              }
+              break;
+            case OP_EDIT:
+              db.edit(arg_name);
+              break;
+            case OP_DELETE:
+              db.del(arg_name);
+              break;
+            }
+
+            // backup and save if changes have occured
+            if (db.is_changed()) {
+              if (arg_verbose) printf("Saving changes to %s\n", db.dbname);
+              if (!(db.backup() && db.save()))
+                throw FailEx();
+            }
+              
+          } catch (const FailEx&) {
+            // try and restore database from backup if a backup was successfully created
+            db.restore();
+            throw;
+          }
+        }
+        break;
+      }
+
+      // first try and close outfile with error checking
+      if (outfile) {
+        if (fclose(outfile)) {
+          fprintf(stderr, "Can't write/close output: %s", strerror(errno));
+          outfile = NULL;
+          throw FailEx();
+        }
+        outfile = NULL;
+      }
+
+      // save the rng seed for next time
+      if (rng_filename[0]) {
+        int rc = RAND_write_file(rng_filename);
+        if (arg_verbose) printf("Wrote %d bytes to %s\n", rc, rng_filename);
+      } // else they already got an error above when we tried to read rng_filename
+   
+      // and we are done
+      throw ExitEx(0);
+      
+    } catch (const FailEx&) {
+      throw ExitEx(1);
+    }
+  } catch (const ExitEx& ex) {
 #ifndef X_DISPLAY_MISSING
     if (xdisplay)
       XCloseDisplay(xdisplay);
 #endif
     if (outfile)
       fclose(outfile);
-
-    return 1;
+    
+    return ex.rc;
   }
 }
 
@@ -637,10 +665,10 @@ static int parse(int argc, char **argv) {
         break;
       case 'V':
         printf("pwsafe %s\n", VERSION);
-        exit(0);
+        throw ExitEx(0);
       case 'h':
         usage(false);
-        exit(0);
+        throw ExitEx(0);
       case ':':
         // the message getopt() printed out is good enough
         throw FailEx();
@@ -699,7 +727,8 @@ static const char* pwsafe_strerror(int err) {
   }
 }
 
-#ifdef READLINE_H_NEEDS_EXTERN_C
+#if WITH_READLINE
+#if READLINE_H_NEEDS_EXTERN_C
 extern "C" {
   static dummy_completion() // more hack job to keep compile warnings away
 #else
@@ -708,10 +737,10 @@ static char* dummy_completion(const char*, int)
 {
   return 0;
 }
-#ifdef READLINE_H_NEEDS_EXTERN_C
+#if READLINE_H_NEEDS_EXTERN_C
 } // extern "C"
 #endif
-
+#endif // WITH_READLINE
 
 // get a password from the user
 static secstring getpw(const char*const prompt) {
@@ -723,7 +752,9 @@ static secstring getpw(const char*const prompt) {
     new_tio.c_lflag &= ~(ECHO);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_tio); // FLUSH so they don't get into the habit of typing ahead their passphrase
   }
+#if WITH_READLINE
   rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
+#endif
   char* x = readline(prompt);
   // restore echo
   tcsetattr(STDIN_FILENO, TCSANOW, &tio);
@@ -743,7 +774,9 @@ static secstring getpw(const char*const prompt) {
 static inline secstring getpw(const std::string& prompt) { return getpw(prompt.c_str()); }
 
 static secstring gettxt(const char*const prompt, const secstring& default_="") {
+#if WITH_READLINE
   rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
+#endif
   char* x = readline(prompt);
   if (x) {
     secstring xx(x);
@@ -962,7 +995,11 @@ static secstring enter_password(const char* prompt1, const char* prompt2) {
   }
 }
 
-
+#if 0 // !defined(X_DISPLAY_MISSING) && defined(HAVE_FCNTL_SETOWN_AND_ASYNC)
+static void sigio_handler(int) {
+  return;
+}
+#endif
 
 // print txt to outfile / copy to X selection
 static void emit(const secstring& name, const char*const what, const secstring& txt) {
@@ -1006,12 +1043,31 @@ static void emit(const secstring& name, const char*const what, const secstring& 
       XSetWMProperties(xdisplay, xwin, &winname,NULL, const_cast<char**>(argv),1, NULL,NULL,NULL); // also init's WM_CLIENT_MACHINE
     }
 
+#if 0 // HAVE_FCNTL_SETOWN_AND_ASYNC
+    // allow input events on stdin to break us out of XNextEvent
+    void (*const prev_sigio)(int) = signal(SIGIO, sigio_handler);
+    const int stdin_flags = fcntl(STDIN_FILENO, F_GETFL);
+    fcntl(STDIN_FILENO, F_SETOWN, getpid());
+    fcntl(STDIN_FILENO, F_SETFL, stdin_flags|O_NONBLOCK|O_ASYNC);
+    struct termios tio;
+    tcgetattr(STDIN_FILENO, &tio);
+    {
+      termios new_tio = tio;
+      new_tio.c_lflag &= ~(ICANON);
+      // now that we turn ICANON off we *must* set VMIN=1 or on sparc the read() buffers 4 at a time
+      new_tio.c_cc[VMIN] = 1;
+      new_tio.c_cc[VTIME] = 0;
+      tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
+    }
+#endif
+      
     Time timestamp = 0;
     Window prev_requestor = 0, prevprev_requestor = 0;
     while (xsel1 || xsel2) {
+      
       XEvent xev;
-      XNextEvent(xdisplay, &xev);
- 
+      int rc = XNextEvent(xdisplay, &xev);
+
       if (xev.type == PropertyNotify) {
         if (!timestamp && xev.xproperty.window == xwin && xev.xproperty.state == PropertyNewValue && xev.xproperty.atom == XA_WM_COMMAND) {
           timestamp = xev.xproperty.time; // save away the timestamp; that's all we really wanted
@@ -1175,6 +1231,13 @@ static void emit(const secstring& name, const char*const what, const secstring& 
 
     if (stxt1) XFree(stxt1);
     if (stxt2) XFree(stxt2);
+
+#if 0 // HAVE_FCNTL_SETOWN_AND_ASYNC
+    fcntl(STDIN_FILENO, F_SETFL, stdin_flags);
+    tcsetattr(STDIN_FILENO, TCSANOW, &tio);
+    signal(SIGIO, prev_sigio);
+#endif
+
   }
 #endif
 }
@@ -1546,10 +1609,13 @@ bool DB::find(matches_t& matches, const char* regex_str /* might be NULL */) {
     int rc = regcomp(&regex, regex_str, (arg_casesensative?0:REG_ICASE)|REG_NOSUB|REG_EXTENDED);
     if (rc) {
       size_t len = regerror(rc, &regex, NULL, 0);
-      char* msg = new char[len];
-      regerror(rc, &regex, msg, len);
-      fprintf(stderr,"%s\n", msg);
-      delete [] msg;
+      char*const msg = reinterpret_cast<char*>(malloc(len));
+      if (msg) {
+        regerror(rc, &regex, msg, len);
+        fprintf(stderr,"%s\n", msg);
+        free(msg);
+      } else
+        fprintf(stderr,"Out of memory\n");
       regfree(&regex);
       throw FailEx();
     }
@@ -1760,7 +1826,7 @@ void DB::edit(const char* regex) {
         entries.insert(entries_t::value_type(e.name,e));
         changed = true;
       } else
-        printf("Changes abandonned\n");
+        printf("Changes abandoned\n");
     }
     else
       printf("No change\n");
@@ -2047,7 +2113,14 @@ bool DB::Entry::write(FILE* f, DB::Context& c, const secstring& str) {
 // ---- secalloc class ---------------------------------------
 
 secalloc::Pool* secalloc::pools = NULL;
-const size_t secalloc::pagesize = sysconf(_SC_PAGESIZE);
+size_t secalloc::pagesize = 0;
+const size_t secalloc::alignsize = std::max(sizeof(double),
+#if HAVE_LONG_LONG
+                                            sizeof(long long)
+#else
+                                            sizeof(long)
+#endif
+                                           );
 
 secalloc::Pool::Pool(size_t n) : next(0), top(0), bottom(0), level(0) {
   char*const z = 0;
@@ -2091,14 +2164,20 @@ secalloc::Pool::~Pool() {
   free(bottom);
 }
 
-secalloc::secalloc(size_t n) {
-  if (pagesize == (size_t)-1) {
-    fprintf(stderr, "ERROR: %s can't compute kernel MMU page size\n", program_name);
-    throw FailEx();
-  }
+secalloc::secalloc() {
+  init();
+}
 
-  if (n)
-    pools = new Pool(n);
+void secalloc::init() {
+  if (pagesize == 0) { // initialize pagesize the first time we are called
+    pagesize = sysconf(_SC_PAGESIZE);
+  
+    if (pagesize == (size_t)-1 || pagesize == 0) {
+      const char errstr[] = "Error: can't compute kernel MMU page size\n";
+      write(STDERR_FILENO, errstr, sizeof(errstr)); // at the point when init() is called, stderr is not necessarily setup
+      throw FailEx();
+    }
+  }
 }
 
 void secalloc::cleanup() {
@@ -2112,13 +2191,17 @@ void secalloc::cleanup() {
 void* secalloc::allocate(size_t n) {
   if (!pools || pools->top - pools->level < n) {
     // need a new pool
-    Pool* p = new Pool(std::max(n, static_cast<size_t>(16*pagesize)));
+    Pool* p = new (std::nothrow) Pool(std::max(n, static_cast<size_t>(16*pagesize)));
+    if (!p) {
+      fprintf(stderr, "Error: %s out of memory\n", program_name);
+      throw FailEx();
+    }
     p->next = pools;
     pools = p;
   }
 
   void* p = pools->level;
-  pools->level += n;
+  pools->level += (n+alignsize-1) & ~(alignsize-1);
   return p;
 }
 
@@ -2132,5 +2215,60 @@ void* secalloc::reallocate(void* p, size_t old_n, size_t new_n) {
   deallocate(p, old_n);
   return new_p;
 }
+
+
+// ----- cheap readline() substitute for without-readline builds ----------------------
+
+#ifndef WITH_READLINE
+// a cheap function with the same api as the real readline()
+static char* readline(const char* prompt) {
+
+  printf("%s", prompt);
+  fflush(stdout);
+  
+  int buflen = 100;
+  int bufpos = 0;
+  char* buf = reinterpret_cast<char*>(malloc(buflen+1));
+  while (buf) {
+    const int rc = ::read(STDIN_FILENO, buf+bufpos, buflen);
+
+    if (rc == -1) {
+      fprintf(stderr, "Error: %s read(STDIN) failed: %s\n", program_name, strerror(errno));
+      memset(buf,0,buflen);
+      free(buf);
+      throw FailEx();
+    }
+
+    bufpos += rc;
+
+    if (bufpos == buflen && buf[bufpos-1] != '\n') {
+      // we needed a bigger buffer
+      char* new_buf = reinterpret_cast<char*>(malloc(2*buflen+1));
+      if (!new_buf) {
+        fprintf(stderr, "Error: %s out of memory\n", program_name);
+        memset(buf,0,buflen);
+        free(buf);
+      }
+
+      memcpy(new_buf, buf, bufpos);
+      memset(buf, 0, buflen);
+      free(buf);
+      buf = new_buf;
+      buflen *= 2;
+      continue;
+    }
+
+    if (rc >= 0) {
+      if (buf[bufpos-1] == '\n')
+        bufpos--;
+      buf[bufpos] = '\0';
+      return buf;
+    }
+  }
+}
+      
+#endif // WITH_READLINE
+
+
 
  
