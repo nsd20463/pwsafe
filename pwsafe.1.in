@@ -53,7 +53,7 @@ Merge DATABASE_FILE into database. Common entries are merged interactively.
 Change the database's passphrase.
 .TP 
 .B  \-\-list[=REGEX]
-List all [matching] entries in database. If no command is given, \-\-list is assumed.
+List all [matching] entries in database.
 .BR 
 If \-u or \-p is given then REGEX must match only one entry, and only the requested field(s) are emitted.
 .TP 
@@ -65,6 +65,8 @@ Edit an entry.
 .TP 
 .B  \-\-delete=NAME
 Delete an entry from database.
+.TP
+If no command is given, an interactive mode is entered.
 .SH "OPTIONS"
 \fBpwsafe\fP accepts the following options:
 .TP 
@@ -117,6 +119,12 @@ Show summary of options.
 Show version of program.
 
 .SH "ENVIRONMENT"
+.TP
+PWSAFE_DEFAULT_USER
+Default user. Defaults to $USER or $LOGNAME.
+.TP
+PWSAFE_IGNORE
+Overrides built\-in \-\-ignore list. \-\-ignore overrides. Format is a list of --ignore arguments, seperated by colons (':').
 .TP 
 HOME
 Used to locate the default database "~/.pwsafe.dat" and default RANDFILE "~/.rnd".
@@ -165,7 +173,7 @@ Nicolas S. Dade <ndade@nsd.dyndns.org>.
 .SH "REPORTING BUGS"
 Report bugs to <ndade@nsd.dyndns.org>.
 .SH "COPYRIGHT"
-Copyright © 2004 Nicolas S. Dade.
+Copyright © 2004-2005 Nicolas S. Dade.
 
 This is free software; see the source for copying conditions.  There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A  PARTICULAR PURPOSE.
 .SH "SEE ALSO"
