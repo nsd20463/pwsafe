@@ -27,7 +27,9 @@ You'll need autoconf 2.5 or better, as well as the header files for X11,
 libreadline (which pulls in lib[n]curses) and openssl's libcrypto.
 
 So far I've only built it on various linuxes (i386, sparc32, sparc64/debian
-stable, debian unstable, redhat 6.2).
+stable, debian unstable, redhat 8.0, 7.2, 6.2) with various g++ versions 
+(3.3.3, 3.2, 2.95, 2.96 and even egcs-2.91).
+
 According to others it builds on MacOS X as well.
 
 

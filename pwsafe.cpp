@@ -38,6 +38,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#include <memory>
 
 #include "system.h"
 
@@ -128,7 +129,7 @@ static struct option const long_options[] =
 };
 
 
-// an allocator class that allocates from secure (non-swapable) storage
+// an (SGI style) allocator class that allocates from secure (non-swapable) storage
 class secalloc {
 public:
   static const size_t pagesize;
@@ -149,10 +150,25 @@ public:
   static void* allocate(size_t);
   static void deallocate(void*, size_t);
   static void* reallocate(void*, size_t, size_t);
+
+  bool operator==(const secalloc&) const { return true; }
+  bool operator!=(const secalloc&) const { return false; }
 };
 
+#ifndef BASIC_STRING_USES_SGI_STYLE_ALLOCATOR
+// g++ 3.[1-3] uses a different allocator style where the allocators are per-type
+// we must wrap our secalloc with their interface to get an allocator suitable for
+// std::basic_string. All this is getting very complicated...and might even break
+// in g++ 3.4, or so the documentation hints. And g++ 3.0 was way too broken and
+// is not supported.
+typedef std::__allocator<char,secalloc> secstring_alloc;
+#else
+// basic_string uses an SGI style allocator, so pass it ours
+typedef secalloc secstring_alloc;
+#endif
+
 // a string class for handling strings that must not be swapped out---we use the secure allocator
-typedef std::basic_string<char, std::string_char_traits<char>, secalloc> secstring;
+typedef std::basic_string<char, std::string::traits_type, secstring_alloc> secstring; // getting the traits to work with gcc 2.9x through 3.3 is tricky; stealing the trait class from the std::string is the cleanest portable thing I can think to do
 
 static void usage(bool fail);
 static int parse(int argc, char **argv);
@@ -311,7 +327,7 @@ int main(int argc, char **argv) {
     else
       program_name++;
 
-    rl_readline_name = program_name; // so readline() can parse its config files and handle if (pwsafe) sections
+    rl_readline_name = const_cast<char*>(program_name); // so readline() can parse its config files and handle if (pwsafe) sections; some older readline's type rl_readline_name as char*, hence the const_cast
 
     secalloc allocator; // so secalloc::cleanup() is always called
 

@@ -5,6 +5,10 @@
           to be suid root for it to work, though.
         * pwsafe: random number generator is seeded from
           ~/.rnd.
+        * pwsafe: big hack to handle both g++ 2.9x and 
+          g++ 3.[1-3]'s std::basic_string. Makes me want to
+          implement my own string class and not depend on
+          someone else's changing library.
         * pwsafe: release 0.1.3
 
 2004-01-26  Nicolas S. Dade  <ndade@nsd.dyndns.org>

@@ -4,6 +4,7 @@ AC_PREREQ(2.5)
 AC_INIT(pwsafe.cpp)
 
 dnl Every other copy of the package version number gets its value from here
+dnl (Except the header in the pwsafe.1)
 AM_INIT_AUTOMAKE(pwsafe, 0.1.3)
 
 dnl create a config.h file (Automake will add -DHAVE_CONFIG_H)
@@ -70,13 +71,46 @@ AC_COMPILE_IFELSE(
   [AC_LANG_PROGRAM(
     [[
 #include <stdio.h>
-#include <readline/readline.h>]],
-    [[char*x=readline("test"); 
-      return (x?0:1);]]
+#include <readline/readline.h>
+    ]],[[
+  char*x=readline("test"); 
+  return (x?0:1);
+    ]]
   )],
   [AC_MSG_RESULT(no)], 
   [AC_DEFINE(READLINE_H_NEEDS_EXTERN_C, 1, [Define to 1 if readline/readline.h needs extern "C"]) 
    AC_MSG_RESULT(yes)])
+AC_LANG_POP(C++)
+
+
+dnl different versions of g++ implement allocators differently. Figure out what kind this g++ uses.
+dnl Note: g++ 3.0 is too broken to be supported, use 2.96 or 3.y, y>=1.
+AC_LANG_PUSH(C++)
+AC_MSG_CHECKING([if std::basic_string uses SGI-style allocator])
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM(
+    [[
+#include <string>
+#include <memory>
+
+class test_alloc {
+public:
+  static void* allocate(size_t) { return 0; }
+  static void deallocate(void*, size_t) {}
+  static void* reallocate(void*,size_t,size_t) { return 0; }
+  bool operator==(const test_alloc&) const { return true; }
+  bool operator!=(const test_alloc&) const { return false; }
+};
+
+typedef std::basic_string<char, std::string::traits_type, test_alloc> test_string;
+    ]],[[
+  test_string s("test");
+  return s.size();
+    ]]
+  )],
+  [AC_DEFINE(BASIC_STRING_USES_SGI_STYLE_ALLOCATOR, 1, [Define to 1 if std::basic_string uses SGI-style allocator])
+   AC_MSG_RESULT(yes)],
+  [AC_MSG_RESULT(no)])
 AC_LANG_POP(C++)
 
 
@@ -90,4 +124,5 @@ fi
 AC_SUBST(CXXFLAGS)
 
 AC_OUTPUT(Makefile pwsafe.lsm pwsafe.spec)
+
 
