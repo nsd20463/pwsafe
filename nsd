@@ -1,5 +1,5 @@
 #!/bin/sh -x
-# scripts for the maintainer
+# scripts for the maintainer (whose initials are 'nsd')
 
 case $1 in
   configure)
@@ -52,14 +52,13 @@ case $1 in
     $0 recompile
     ;;
   release)
-    # prep and tar up a release
-    $0 prep
+    # tar up a release
     VER=`awk <configure.ac '/^AM_INIT_AUTOMAKE/ { print $2 }' | tr -d ')'`
     TGZ=pwsafe-$VER.tar.gz
     DIR=pwsafe-$VER
     rm -rf ../$DIR
-    mkdir -p ../$DIR
-    tar cf - . | tar xf - -C ../$DIR
+    { cd ..; cvs -d `cat pwsafe/CVS/Root` export -d $DIR -D tomorrow pwsafe; }
+    { cd ../$DIR; ./nsd prep; }
     tar czvf ../$TGZ -C ../ $DIR
     # and make the archival copy
     { cd ../$DIR; ./configure --program-suffix=$VER; make; strip pwsafe; } 
