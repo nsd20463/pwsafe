@@ -1,3 +1,8 @@
+2004-03-01  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+    
+        * pwsafe: first try case sensative perfect match.
+        * pwsafe: release 0.1.6
+
 2004-02-27  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
         * pwsafe: you can now end the X selection
@@ -6,7 +11,6 @@
         * pwsafe: fixed up build on MacOSX (sysconf(_SC_PAGEZIZE)
           doesn't exist) and freebsd (readline.h declares
           most things correctly, but not the callbacks)
-        * pwsafe: release 0.1.6
 
 2004-02-25  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 

@@ -1110,19 +1110,11 @@ static void emit(const secstring& name, const char*const what, const secstring& 
       tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
     }
 
-    while (xsel1 || xsel2) {
+    fd_set in;
+    FD_ZERO(&in);
 
-      // wait for either a keystroke or an x event
-      fd_set in;
-      FD_ZERO(&in);
-      FD_SET(STDIN_FILENO, &in);
-      FD_SET(xfd, &in);
-      if (select(std::max(STDIN_FILENO, xfd)+1, &in, NULL, NULL, NULL) <= 0) {
-        tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-        throw FailEx();
-      }
-        
-      if (FD_ISSET(STDIN_FILENO, &in)) {
+    while (xsel1 || xsel2) {
+      if (timestamp && FD_ISSET(STDIN_FILENO, &in)) {
         char x;
         ssize_t rc = read(STDIN_FILENO,&x,1);
         if (rc == 1) {
@@ -1138,9 +1130,9 @@ static void emit(const secstring& name, const char*const what, const secstring& 
         }
       }
 
-      if (FD_ISSET(xfd, &in)) {
+      while (XPending(xdisplay) > 0) {
         XEvent xev;
-        int rc = XNextEvent(xdisplay, &xev);
+        XNextEvent(xdisplay,&xev);
 
         if (xev.type == PropertyNotify) {
           if (!timestamp && xev.xproperty.window == xwin && xev.xproperty.state == PropertyNewValue && xev.xproperty.atom == XA_WM_COMMAND) {
@@ -1163,17 +1155,10 @@ static void emit(const secstring& name, const char*const what, const secstring& 
             }
 
             // let the user know
-            if (arg_verbose>1) {
-              if (xsel1 && xsel2)
-                printf("X selections %s and %s contain %s for %s\n", stxt1, stxt2, what, name.c_str());
-              else if (xsel1)
-                printf("X selection %s contains %s for %s\n", stxt1, what, name.c_str());
-            } else {
-              if (xsel1 && xsel2)
-                printf("You are ready to paste the %s for %s from %s and %s\nPress any key when done.\n", what, name.c_str(), stxt1, stxt2);
-              else if (xsel1)
-                printf("You are ready to paste the %s for %s from %s\nPress any key when done.\n", what, name.c_str(), stxt1);
-            }
+            if (xsel1 && xsel2)
+              printf("You are ready to paste the %s for %s from %s and %s\nPress any key when done\n", what, name.c_str(), stxt1, stxt2);
+            else if (xsel1)
+              printf("You are ready to paste the %s for %s from %s\nPress any key when done\n", what, name.c_str(), stxt1);
           }
         }
         else if (xev.type == SelectionRequest) {
@@ -1299,6 +1284,20 @@ static void emit(const secstring& name, const char*const what, const secstring& 
         } else {
           // it is some event we don't care about
         }
+      }
+
+      // wait for either a keystroke or an x event
+      if (xsel1 || xsel2) {
+        FD_ZERO(&in);
+        FD_SET(STDIN_FILENO, &in);
+        FD_SET(xfd, &in);
+        int rc = select(std::max(STDIN_FILENO, xfd)+1, &in, NULL, NULL, NULL);
+        if (rc < 0 ) {
+          tcsetattr(STDIN_FILENO, TCSANOW, &tio);
+          throw FailEx();
+        }
+        if (rc == 0)
+          FD_ZERO(&in);
       }
     }
 
@@ -1706,13 +1705,25 @@ bool DB::find(matches_t& matches, const char* regex_str /* might be NULL */) {
 const DB::Entry& DB::find1(const char* regex) {
   // first see if there is a perfect match for regex, treating regex as a literal string (and not a regex at all)
   {
+    // first-first, try with a case sensative comparison even though they didn't ask for that
+    for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
+      const Entry& e = i->second;
+      if (strcmp(regex,e.name.c_str()) == 0) {
+        return e;
+      }
+    }
+  }
+
+  // since that didn't work, try a case insensative comparison if that is a possibility
+  if (!arg_casesensative) {
     matches_t matches;
     for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
       const Entry& e = i->second;
-      if ((arg_casesensative ? strcmp(regex,e.name.c_str()) : strcasecmp(regex,e.name.c_str())) == 0)
+      if (strcasecmp(regex,e.name.c_str()) == 0) {
         matches.push_back(&e);
+      }
     }
-    if (matches.size() == 1)
+    if (matches.size() == 1) // >1 might match b/c we are matching case insensative and they only differ by case
       return *matches.front();
   }
 
