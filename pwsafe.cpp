@@ -73,6 +73,7 @@
 #include <vector>
 #include <algorithm>
 #include <memory>
+#include <fstream>
 
 #include "system.h"
 
@@ -142,6 +143,13 @@ typedef int socklen_t;
 const char *program_name = "pwsafe"; // make sure program_name always points to something valid so we can use it in constructors of globals
 uid_t saved_uid;
 gid_t saved_gid;
+
+// the name of the environment variables used for the agent
+#define PWSAFE_AUTH_SOCK "PWSAFE_AUTH_SOCK"
+#define PWSAFE_AGENT_PID "PWSAFE_AGENT_PID"
+pid_t agent_pid = 0;
+int agent_sock = -1;
+FILE* agent_fsock = NULL;
 
 // Option flags and variables
 const char* arg_dbname = NULL;
@@ -257,6 +265,7 @@ static const char* pwsafe_strerror(int err); // decodes errno's as well as our n
 #define PWSAFE_ERR_INVALID_DB -1
 
 static void agent(const int sock, const std::string&, const std::string&);
+static int tell_agent(const char* cmd); // returns response code (ie 200)
 
 static char get1char(const char* prompt, int def_val=-1);
 static bool getyn(const char* prompt, int def_val=-1);
@@ -532,6 +541,44 @@ int main(int argc, char **argv) {
         fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
       }
 
+      // connect to the agent, if one exists
+      {
+        const char* ap = getenv(PWSAFE_AGENT_PID);
+        if (ap) {
+          pid_t p = atoi(ap);
+          if (p < 1) {
+            fprintf(stderr, "WARNING: value of " PWSAFE_AGENT_PID " (%s) is not a pid\n", ap);
+          } else {
+            agent_pid = p;
+
+            const char* as = getenv(PWSAFE_AUTH_SOCK);
+            if (as) {
+              agent_sock = open(as,O_NOFOLLOW|O_RDWR); // O_NOFOLLOW out of paranioa
+              if (agent_sock == -1) {
+                fprintf(stderr, "WARNING: cannot open " PWSAFE_AGENT_PID " (%s): %s\n", as, strerror(errno));
+              } else {
+                // should we check in /proc that the PID is that of pwsafe-agent?
+
+                agent_fsock = fdopen(agent_sock, "w+");
+                if (!agent_fsock) {
+                  fprintf(stderr, "WARNING: cannot fopen " PWSAFE_AGENT_PID " (%s): %s\n", as, strerror(errno));
+                  close(agent_sock);
+                  agent_sock = -1;
+                } else {
+                  // ok if we get this far we are ok
+                  if (arg_verbose) fprintf(stderr, "Connected succesfuly with pwsafe agent\n");
+                }
+              }
+            } else {
+              fprintf(stderr, "WARNING: " PWSAFE_AGENT_PID " is set but " PWSAFE_AUTH_SOCK " is not\n");
+            }
+          }
+        }
+        else {
+          if (arg_verbose) fprintf(stderr, PWSAFE_AGENT_PID " is not set; assuming no pwsafe agent\n");
+        }
+      }
+
 #ifndef X_DISPLAY_MISSING
       if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo || arg_xclip))
         printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
@@ -662,12 +709,12 @@ int main(int argc, char **argv) {
             pid = fork();
           if (pid) {
             if (arg_csh)
-              printf("setenv PWSAFE_AUTH_SOCK %s;\n"
-                     "setenv PWSAFE_AGENT_PID %d;\n"
+              printf("setenv " PWSAFE_AUTH_SOCK " %s;\n"
+                     "setenv " PWSAFE_AGENT_PID " %d;\n"
                      "echo pwsafe agent pid %d\n", sockname.c_str(), pid, pid);
             else
-              printf("PWSAFE_AUTH_SOCK=%s; export PWSAFE_AUTH_SOCK;\n"
-                     "PWSAFE_AGENT_PID=%d; export PWSAFE_AGENT_PID;\n"
+              printf(PWSAFE_AUTH_SOCK "=%s; export " PWSAFE_AUTH_SOCK ";\n"
+                     PWSAFE_AGENT_PID "=%d; export " PWSAFE_AGENT_PID ";\n"
                      "echo pwsafe agent pid %d\n", sockname.c_str(), pid, pid);
           }
           if (!pid || arg_debug) 
@@ -677,31 +724,26 @@ int main(int argc, char **argv) {
         }
         else {
           // kill the current agent
-          const char* ap = getenv("PWSAFE_AGENT_PID");
-          if (!ap) {
-            fprintf(stderr, "PWSAFE_AGENT_PID is not set; cannot kill pwsafe agent\n");
+          if (!agent_pid) {
+            fprintf(stderr, PWSAFE_AGENT_PID " is not set; cannot kill pwsafe agent\n");
             throw FailEx();
           }
-          pid_t pid = atoi(ap);
-          if (pid < 1) {
-            fprintf(stderr, "value of PWSAFE_AGENT_PID (%s) is not a pid\n", ap);
-            throw FailEx();
-          }
-          // should we check in /proc that the PID is that of pwsafe-agent?
           // should we send a message rather than kill()ing?
-          if (kill(pid, SIGTERM) < 0) {
-            fprintf(stderr, "kill(PWSAFE_AGENT_PID=%s) failed: %s\n", ap, strerror(errno));
-            throw FailEx();
+          if (!agent_fsock || tell_agent("exit") != 200) {
+            if (kill(agent_pid, SIGTERM) < 0) {
+              fprintf(stderr, "kill(" PWSAFE_AGENT_PID "=%d) failed: %s\n", agent_pid, strerror(errno));
+              throw FailEx();
+            }
           }
           // looks like we killed something, so emit the correct commands to unconfigure the shell
           if (arg_csh)
-            printf("unsetenv PWSAFE_AUTH_SOCK;\n"
-                   "unsetenv PWSAFE_AGENT_PID;\n"
-                   "echo pwsafe agent pid %d killed\n", pid);
+            printf("unsetenv " PWSAFE_AUTH_SOCK ";\n"
+                   "unsetenv " PWSAFE_AGENT_PID ";\n"
+                   "echo pwsafe agent pid %d killed\n", agent_pid);
           else
-            printf("unset PWSAFE_AUTH_SOCK;\n"
-                   "unset PWSAFE_AGENT_PID;\n"
-                   "echo pwsafe agent pid %d killed\n", pid);
+            printf("unset " PWSAFE_AUTH_SOCK ";\n"
+                   "unset " PWSAFE_AGENT_PID ";\n"
+                   "echo pwsafe agent pid %d killed\n", agent_pid);
         }
         break;
       }
@@ -735,6 +777,11 @@ int main(int argc, char **argv) {
 #endif
     if (outfile)
       fclose(outfile);
+    
+    if (agent_fsock)
+      fclose(agent_fsock);
+    if (agent_sock != -1)
+      close(agent_sock);
     
     return ex.rc;
   }
@@ -814,7 +861,12 @@ static int parse(int argc, char **argv) {
         arg_csh = true;
         break;
       case 'k':
-        arg_kill = true;
+        if (arg_op == OP_NOP || arg_op == OP_AGENT) {
+          arg_op = OP_AGENT;
+          arg_kill = true;
+        } else
+          usage(true);
+        break;
         break;
       case 'f':
         arg_dbname = optarg;
@@ -908,7 +960,7 @@ static void usage(bool fail) {
         "Commands:\n"
         "  --createdb                 create an empty database\n"
         "  --passwd                   change database passphrase\n"
-        "  [--list] [REGEX]           list all [matching] entries. If -u and/or -p are given, only entry must match\n"
+        "  [--list] [REGEX]           list all [matching] entries. If -u and/or -p are given, only one entry may match\n"
         "  -a, --add [NAME]           add an entry\n"
         "  -e, --edit REGEX           edit an entry\n"
         "  --delete NAME              delete an entry\n"
@@ -1307,6 +1359,9 @@ static void emit(const secstring& name, const char*const what, const secstring& 
         }
       }
 
+      // in order to filter out programs that automatically grab a copy of any selection (like klipper or xclipboard), we
+      // put up a dummy selection and keep track of who grabs it
+#warning implement_this
       while (XPending(xdisplay) > 0) {
         XEvent xev;
         XNextEvent(xdisplay,&xev);
@@ -2482,7 +2537,50 @@ static void cleanup_agent(int) {
   agent_exit = true;
 }
 
+struct FreeMe {
+    void*const ptr;
+    FreeMe(void* p) : ptr(p) {}
+    ~FreeMe() { free(ptr); }
+};
+struct FCloseMe {
+    FILE*const f;
+    FCloseMe(FILE* ff) : f(ff) {}
+    ~FCloseMe() { fclose(f); }
+};
+
 static void agent_handle_client(const int sock) {
+  FILE*const f = fdopen(sock, "w+b");
+  if (f) {
+    FCloseMe fcloseme(f);
+    char* line = 0;
+    size_t len = 0;
+    ssize_t r = getline(&line,&len,f);
+    if (r < 0)
+      return;
+    FreeMe freeme(line);
+    if (len > 1024 || len == 0 || !line)
+      // assume someone is messing with us
+      return;
+    if (line[len-1] == '\n')
+      line[len-1] = '\0';
+    const std::string cmd = line;
+    if (cmd == "exit") {
+      ::fputs("200 ok, exiting\n",f);
+      agent_exit = true;
+    }
+    else if (cmd.substr(0,4) == "add ") {
+      const std::string name = cmd.substr(4,cmd.find_first_of(4,' '));
+      const std::string value = cmd.substr(4+name.length()+1);
+
+      fputs("200 add went ok\n",f);
+    }
+    else if (cmd.substr(0,4) == "get ") {
+    }
+    else {
+      // we don't know what they want
+      fputs("500 unknown cmd\n",f);
+    }
+  }
 }
 
 static void agent(const int sock, const std::string& sockname, const std::string& sockdir) {
@@ -2567,6 +2665,39 @@ static void agent(const int sock, const std::string& sockname, const std::string
   // and if the dir is empty rmdir succeeds, and if it isn't it doesn't and that's ok
   rmdir(sockdir.c_str());
   throw ExitEx(0);
+}
+
+int tell_agent(const char* cmd) {
+  if (agent_fsock) {
+    alarm(15); // give ourselves 15 seconds to complete this before timout out
+    fputs(cmd, agent_fsock);
+    fflush(agent_fsock);
+     
+    char* line = 0;
+    size_t len = 0;
+    ssize_t r = getline(&line,&len,agent_fsock);
+    if (r < 0 || !line) {
+      fprintf(stderr, "ERROR: read from pwsafe-agent failed: %s\n", strerror(errno));
+      throw FailEx();
+    }
+    FreeMe freeme(line);
+    if (len > 1024 || len == 0 || !line) {
+      // assume someone is messing with us
+      fprintf(stderr, "ERROR: truncated response from pwsafe-agent\n");
+      throw FailEx();
+    }
+    if (line[len-1] == '\n')
+      line[len-1] = '\0';
+    int rc = atoi(line);
+    if (rc == 0) {
+      fprintf(stderr, "ERROR: funny response from pwsafe-agent\n");
+      throw FailEx();
+    }
+    return rc;
+  } else {
+    fprintf(stderr, "ERROR: not connected to pwsafe-agent\n");
+    throw FailEx();
+  }
 }
 
 // ----- cheap readline() substitute for without-readline builds ----------------------
