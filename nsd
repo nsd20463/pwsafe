@@ -9,13 +9,16 @@ case $1 in
     ;;
   prep)
     # configure and make distclean
-    $0 configure
-    make clean
-    if ! make check; then
-     exit 1
+    if $0 configure; then
+      make clean
+      if ! make check; then
+       exit 1
+      fi
+      make distclean
+      rm -rf autom4te.cache
+    else
+      exit 1
     fi
-    make distclean
-    rm -rf autom4te.cache
     ;;
   recompile)
     # upload and recompile on each of the sourceforge compile farm servers
@@ -33,7 +36,8 @@ case $1 in
     x86_netbsd1_make=gmake
     x86_openbsd1_make=gmake
  
-    for host in alpha-linux1 amd64-linux1 ppc-osx1 ppc-osx2 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1 x86-openbsd1; do
+    # sparc-solaris2 and x86-openbsd1 appear to be down
+    for host in alpha-linux1 amd64-linux1 ppc-osx1 ppc-osx2 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1; do
       RSH="ssh -l`echo $USER|tr -d -` cf-shell.sourceforge.net ssh $host"
       DIR=$host
       CONF="`echo $host|tr -- - _`_conf"
@@ -49,8 +53,12 @@ case $1 in
     ;;
   compile)
     # prep & recompile combined
-    $0 prep
-    $0 recompile
+    if $0 prep; then
+      $0 recompile
+      exit $?
+    else
+      exit 1
+    fi
     ;;
   release)
     # tar up a release
@@ -59,10 +67,14 @@ case $1 in
     DIR=pwsafe-$VER
     rm -rf ../$DIR
     ( cd ..; cvs -d `cat pwsafe/CVS/Root` export -d $DIR -D tomorrow pwsafe; )
-    ( cd ../$DIR; ./nsd prep; )
-    tar czvf ../$TGZ -C ../ $DIR
-    # and make the archival copy
-    ( cd ../$DIR; ./configure --program-suffix=$VER; make; strip pwsafe; )
+    if ( cd ../$DIR; ./nsd prep; ); then
+      tar czvf ../$TGZ -C ../ $DIR
+      # and make the archival copy
+      ( cd ../$DIR; ./configure --program-suffix=$VER; make; strip pwsafe; )
+      exit $?
+    else
+      exit 1
+    fi
     ;;
   *)
     echo "Usage $0 (configure|prep|compile|recompile|release)"
