@@ -1,7 +1,7 @@
 /* 
    pwsafe - commandline tool compatible with Counterpane's Passwordsafe
 
-   Copyright (C) 2004 Nicolas S. Dade
+   Copyright (C) 2004-2005 Nicolas S. Dade
 
    $Id$
 
@@ -170,7 +170,7 @@ const char* arg_dbname = NULL;
 Version arg_dbversion = VERSION_UNKNOWN;
 const char* arg_mergedb = NULL;
 const char* arg_name = NULL;
-enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_MERGEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE };
+enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_MERGEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_INTERACT };
 OP arg_op = OP_NOP;
 //const char* arg_config = NULL;
 bool arg_casesensative = false;
@@ -202,6 +202,7 @@ static long_option const long_options[] =
   {"add", no_argument, 0, 'a'},
   {"edit", no_argument, 0, 'e'},
   {"delete", no_argument, 0, 'D'},
+  {"interact", no_argument, 0, 'I'&31},
   // options
 //  {"config", required_argument, 0, 'F'},
   {"file", required_argument, 0, 'f'},
@@ -413,7 +414,6 @@ private:
   bool overwritten; // true once we start overwriting dbname
   
   bool getkey(bool test, const char* prompt1="Enter passphrase", const char* prompt2="Reenter passphrase"); // get/verify passphrase
-  bool open(); // call getkey(), read file into entries map
 
   bool merge(const Entry&, bool overwrite=false); // merge entry into database, replacing any matching entry
   bool find(matches_t&, const char* regex); // find all entries matching regex
@@ -427,6 +427,7 @@ public:
   ~DB();
 
   static void createdb(const char* dbname);
+  bool open(); // call getkey(), read file into entries map
   void exportdb();
   void mergedb(DB&);
   void passwd();
@@ -447,10 +448,22 @@ public:
 
 
 void interactive(DB& db) {
+
+  if (!db.open())
+    throw FailEx();
+  
+  const char* db_shortname = strrchr(db.dbname, '/');
+  if (!db_shortname)
+    db_shortname = db.dbname;
+  else
+    db_shortname++;
+
   char* cmdline = NULL;
   size_t cmdline_buflen = 0;
   
   while (true) {
+    printf("pwsafe:%s> ",db_shortname);
+    fflush(stdout);
     ssize_t cmdlen = getline(&cmdline, &cmdline_buflen, stdin);
     if (cmdlen == -1)
       throw ExitEx(1);
@@ -458,7 +471,7 @@ void interactive(DB& db) {
     // break cmdline into argc/argv
     int argc = 1;
     int argv_len = 1;
-    char** argv = reinterpret_cast<char**>(malloc(sizeof(argv[0])*argv_len));
+    char** argv = reinterpret_cast<char**>(malloc(sizeof(argv[0])*(argv_len+1))); // +1 for terminating NULL
     if (!argv) {
       free(cmdline);
       throw ExitEx(1);
@@ -470,13 +483,14 @@ void interactive(DB& db) {
         // advance to the next non-blank char
         while (p-cmdline < cmdlen && *p != '\0' && *p != '\n' && isspace(*p))
           ++p;
-        if (*p == '\0' || *p == '\n' || p-cmdline < cmdlen)
+        // if we reached the end, stop
+        if (p-cmdline >= cmdlen || *p == '\0' || *p == '\n')
           break;
  
         // make sure there's room in argv[argc]
         if (argc >= argv_len) {
           int new_argv_len = argv_len*2;
-          char** new_argv = reinterpret_cast<char**>(realloc(argv,sizeof(argv[0]) * new_argv_len));
+          char** new_argv = reinterpret_cast<char**>(realloc(argv,sizeof(argv[0]) * (new_argv_len+1))); // +1 for terminating NULL
           if (!new_argv) {
             free(argv);
             free(cmdline);
@@ -512,10 +526,11 @@ void interactive(DB& db) {
           *q = '\0';
         }
       }
+      // terminate argv; getopt_long() expects this
+      argv[argc] = NULL;
     }
 
     // now execute argv
-
     try {
       try {
         int idx = parse(argc, argv);
@@ -581,7 +596,7 @@ void interactive(DB& db) {
         }
   #endif
 
-        // mess around stdout and outfile so they are intelligently selected
+        // mess around with stdout and outfile so they are intelligently selected
         // what we want is usages like "pwsafe | less" to work correctly
         if (arg_output) {
           outfile = fopen(arg_output,"w");
@@ -755,7 +770,10 @@ int main(int argc, char **argv) {
         }
       }
 #endif
-      
+      if (arg_op == OP_NOP)
+        // assume --list
+        arg_op = OP_LIST;
+
       if (arg_op == OP_LIST && (arg_username || arg_password))
         // this is actually an OP_EMIT and not an OP_LIST
         arg_op = OP_EMIT;
@@ -797,7 +815,7 @@ int main(int argc, char **argv) {
       }
 #endif
 
-      // mess around stdout and outfile so they are intelligently selected
+      // mess around with stdout and outfile so they are intelligently selected
       // what we want is usages like "pwsafe | less" to work correctly
       if (arg_output) {
         outfile = fopen(arg_output,"w");
@@ -840,10 +858,13 @@ int main(int argc, char **argv) {
       DB::Init();
 
       switch (arg_op) {
+      case OP_NOP:
+        fprintf (stderr, "%s - No command specified\n", program_name);
+        usage(true);
+        break;
       case OP_CREATEDB:
         DB::createdb(arg_dbname);
         break;
-      case OP_NOP:
       case OP_EXPORTDB:
       case OP_MERGEDB:
       case OP_PASSWD:
@@ -852,11 +873,12 @@ int main(int argc, char **argv) {
       case OP_ADD:
       case OP_EDIT:
       case OP_DELETE:
+      case OP_INTERACT:
         {
           DB db(arg_dbname);
           try {
             switch (arg_op) {
-            case OP_NOP:
+            case OP_INTERACT:
               interactive(db);
               break;
             case OP_EXPORTDB:
@@ -1019,6 +1041,12 @@ static int parse(int argc, char **argv) {
       case 'D':
         if (arg_op == OP_NOP)
           arg_op = OP_DELETE;
+        else
+          usage(true);
+        break;
+      case 'I'&31:
+        if (arg_op == OP_NOP)
+          arg_op = OP_INTERACT;
         else
           usage(true);
         break;
