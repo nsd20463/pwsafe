@@ -13,6 +13,7 @@ HOW TO BUILD FROM SOURCE TARBALL
 HOW TO BUILD FROM CVS
 
    cd <dir>
+   aclocal        # generate aclocal.m4
    autoheader     # generate config.h.in from configure.ac
    automake       # generated Makefile.in from Makefile.am
    autoconf       # generate configure from configure.ac
