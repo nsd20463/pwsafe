@@ -1,3 +1,18 @@
+2004-01-26  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+        * pwsafe: fixed -V/--version segfault.
+        * pwsafe: fixed getyn() brokenness.
+        * pwsafe: improved searching algorithm, now
+          if the string perfecting matches (without
+          regex matching) it's a match. And added
+          case sensativity of -I/--case or if search
+          string contains uppercase.
+        * pwsafe: Split OP_LIST into OP_LIST and OP_EMIT.
+          OP_EMIT is implicit if -u or -p is given.
+        * pwsafe: implemented -e/--edit. (Renamed -e/--echo
+          to -E/--echo.)
+        * pwsafe: implemented randomly chosen passwords.
+ 
 2004-01-23  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
         * pwsafe: updated man page and usage()
