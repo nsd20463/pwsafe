@@ -1,3 +1,15 @@
+2005-03-08  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: when doing a --mergedb, try the passphrase
+	  of the 1st database when opening the 2nd one
+	  before prompting the user.
+	
+2005-03-05  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: fixed socklen_t test in configure to #include
+	  sys/types.h before sys/socket.h, thus making it work
+	  properly on openbsd.
+
 2005-02-18  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: added -q/--quiet at Jon Krom's request.

@@ -422,6 +422,8 @@ private:
   bool overwritten; // true once we start overwriting dbname
   
   bool getkey(bool test, const char* prompt1="Enter passphrase", const char* prompt2="Reenter passphrase"); // get/verify passphrase
+  bool testkey(const secstring&);
+  void hashkey(const secstring&, unsigned char test_hash[]);
 
   bool merge(const Entry&, bool overwrite=false); // merge entry into database, replacing any matching entry
   bool find(matches_t&, const char* regex); // find all entries matching regex
@@ -435,7 +437,7 @@ public:
   ~DB();
 
   static void createdb(const char* dbname);
-  bool open(); // call getkey(), read file into entries map
+  bool open(const secstring* pw_to_try=NULL); // call getkey(), read file into entries map
   void exportdb();
   void mergedb(DB&);
   void passwd();
@@ -1966,7 +1968,7 @@ bool DB::merge(const Entry& e, bool overwrite) {
 void DB::mergedb(DB& db2) {
   if (arg_verbose > 0) printf("merging %s into %s\n", db2.dbname, dbname);
 
-  if (open() && db2.open()) {
+  if (open() && db2.open(&passphrase)) { // try opening 2nd db using first's passphrase, since if we're merging the same db the passphrase is often identical
     int num_merged = 0, num_skipped = 0, num_dup = 0;
 
     for (entries_t::const_iterator i=db2.entries.begin(); i!=db2.entries.end(); ++i) {
@@ -2030,62 +2032,18 @@ bool DB::getkey(bool test, const char* prompt1, const char* prompt2) {
       }
     }
 
-    unsigned char test_hash[sizeof(header->hash)];
-    { // generate test hash from random and passphrase
-      // I am mystified as to why Bruce uses these extra 2 zero bytes in the hashes
-      SHA_CTX sha;
-      SHA1_Init(&sha);
-      SHA1_Update(&sha, header->random, sizeof(header->random));
-      const static unsigned char zeros[2] = { 0,0 };
-      SHA1_Update(&sha, zeros, 2);
-      SHA1_Update(&sha, pw.data(), pw.length());
-
-      unsigned char temp_key[SHA_DIGEST_LENGTH];
-      SHA1_Final(temp_key, &sha);
-
-      BF_KEY bf;
-      BF_set_key(&bf, sizeof(temp_key), temp_key);
-
-      Block block;
-      block.read(header->random, sizeof(header->random));
-      // to mimic passwordsafe I use BF_encrypt() directly, but that means I have to pretend that I am on a little-endian machine b/c passwordsafe assumes a i386
-      for (int i=0; i<1000; ++i)
-        BF_encrypt(block,&bf);
-
-      unsigned char hash_data[8];
-      block.write(hash_data);
-
-      // Now comes a sad part: I have to hack to mimic the original passwordsafe which contains what I believe
-      // is a bug. passwordsafe used its own blowfish and sha1 libraries, and its version of SHA1Final()
-      // memset the sha context to 0's. However the passwordsafe code went ahead and performed a
-      // SHA1Update on that zero'ed context. This of course did not crash anything, but it is not
-      // a real sha hash b/c the initial state of a real sha1 is not all zeros. Also we end up only
-      // hashing 8 bytes of stuff, so there are not 20 bytes of randomness in the result.
-      // The good thing is we are hashing something which is already well hashed, so I doubt this
-      // opened up any holes. But it does show that one should always step the program in a debugger
-      // and watch what the variables are doing; sometimes it is eye opening!
-      memset(&sha,0,sizeof(sha));
-      SHA1_Update(&sha, hash_data, sizeof(hash_data));
-      SHA1_Update(&sha, zeros, 2);
-      SHA1_Final(test_hash, &sha);
-
-      memset(&sha,0,sizeof(sha));
-      memset(&bf,0,sizeof(bf));
-      memset(temp_key,0,sizeof(temp_key));
-    }
-
     if (test) {
       // see if pw is correct
-      if (memcmp(test_hash, header->hash, sizeof(header->hash)) != 0) {
-        printf("Passphrase is incorrect\n");
-        continue;
-      } else {
+      if (testkey(pw)) {
         passphrase = pw;
         return true;
+      } else {
+        printf("Passphrase is incorrect\n");
+        continue;
       }
     } else {
       // initialize hash correctly
-      memcpy(header->hash, test_hash, sizeof(header->hash));
+      hashkey(pw, header->hash);
       passphrase = pw;
       changed = true; // since we've set/changed the passphrase, the db is changed
       return true;
@@ -2093,7 +2051,62 @@ bool DB::getkey(bool test, const char* prompt1, const char* prompt2) {
   }
 }
 
-bool DB::open() {
+bool DB::testkey(const secstring& pw) {
+  unsigned char test_hash[sizeof(header->hash)];
+  hashkey(pw,test_hash);
+  if (memcmp(test_hash, header->hash, sizeof(header->hash)) == 0) {
+    passphrase = pw;
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void DB::hashkey(const secstring& pw, unsigned char test_hash[]) {
+  // generate test hash from random and passphrase
+  // I am mystified as to why Bruce uses these extra 2 zero bytes in the hashes
+  SHA_CTX sha;
+  SHA1_Init(&sha);
+  SHA1_Update(&sha, header->random, sizeof(header->random));
+  const static unsigned char zeros[2] = { 0,0 };
+  SHA1_Update(&sha, zeros, 2);
+  SHA1_Update(&sha, pw.data(), pw.length());
+
+  unsigned char temp_key[SHA_DIGEST_LENGTH];
+  SHA1_Final(temp_key, &sha);
+
+  BF_KEY bf;
+  BF_set_key(&bf, sizeof(temp_key), temp_key);
+
+  Block block;
+  block.read(header->random, sizeof(header->random));
+  // to mimic passwordsafe I use BF_encrypt() directly, but that means I have to pretend that I am on a little-endian machine b/c passwordsafe assumes a i386
+  for (int i=0; i<1000; ++i)
+    BF_encrypt(block,&bf);
+
+  unsigned char hash_data[8];
+  block.write(hash_data);
+
+  // Now comes a sad part: I have to hack to mimic the original passwordsafe which contains what I believe
+  // is a bug. passwordsafe used its own blowfish and sha1 libraries, and its version of SHA1Final()
+  // memset the sha context to 0's. However the passwordsafe code went ahead and performed a
+  // SHA1Update on that zero'ed context. This of course did not crash anything, but it is not
+  // a real sha hash b/c the initial state of a real sha1 is not all zeros. Also we end up only
+  // hashing 8 bytes of stuff, so there are not 20 bytes of randomness in the result.
+  // The good thing is we are hashing something which is already well hashed, so I doubt this
+  // opened up any holes. But it does show that one should always step the program in a debugger
+  // and watch what the variables are doing; sometimes it is eye opening!
+  memset(&sha,0,sizeof(sha));
+  SHA1_Update(&sha, hash_data, sizeof(hash_data));
+  SHA1_Update(&sha, zeros, 2);
+  SHA1_Final(test_hash, &sha);
+
+  memset(&sha,0,sizeof(sha));
+  memset(&bf,0,sizeof(bf));
+  memset(temp_key,0,sizeof(temp_key));
+}
+
+bool DB::open(const secstring* pw_to_try) {
   if (opened)
     return true;
 
@@ -2108,7 +2121,7 @@ bool DB::open() {
     return false;
   }
  
-  if (getkey(true)) {
+  if ((pw_to_try && testkey(*pw_to_try)) || getkey(true)) {
     // load the rest of the file
     Context*const ctxt = new Context(*header, passphrase, version); // so context resides in secure memory
     try {
