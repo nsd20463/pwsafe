@@ -29,7 +29,7 @@ dnl Check for X
 AC_PATH_XTRA
 
 dnl Checks for libraries.
-AC_CHECK_LIB(crypto, SHA1_Init, [], [AC_MSG_ERROR(openssl is required)])
+AC_CHECK_LIB(crypto, SHA1_Init, [], [AC_MSG_ERROR(openssl (libssl) is required)])
 AC_CHECK_LIB(ncurses, initscr, [], [AC_MSG_ERROR(libncurses is required)])
 AC_CHECK_LIB(readline, readline, [], [AC_MSG_ERROR(libreadline is required)])
 
@@ -44,9 +44,9 @@ dnl Checks for header files.
 AC_HEADER_STDC
 AC_CHECK_HEADERS(unistd.h sys/param.h sys/time.h time.h sys/mkdev.h sys/sysmacros.h string.h memory.h fcntl.h dirent.h sys/ndir.h ndir.h alloca.h locale.h)
 AC_CHECK_HEADERS(stdint.h errno.h termios.h getopt.h)
-AC_CHECK_HEADERS(openssl/sha.h openssl/blowfish.h openssl/rand.h, [], [AC_MSG_ERROR(openssl headers are required)])
-AC_CHECK_HEADERS(curses.h, [], [AC_MSG_ERROR(curses.h is required)])
-AC_CHECK_HEADERS(readline/readline.h, [], [AC_MSG_ERROR(readline/readline.h is required)])
+AC_CHECK_HEADERS(openssl/sha.h openssl/blowfish.h openssl/rand.h, [], [AC_MSG_ERROR(openssl headers (libssl-dev) are required)])
+AC_CHECK_HEADERS(curses.h, [], [AC_MSG_ERROR(curses.h (libncurses-dev) is required)])
+AC_CHECK_HEADERS(readline/readline.h, [], [AC_MSG_ERROR(readline/readline.h (libreadline-dev) is required)])
 AC_CHECK_HEADERS(netinet/in.h, [], [AC_MSG_ERROR(netinet/in.h is required)])
 if test "$have_x" = yes; then
 AC_CHECK_HEADERS(X11/Xlib.h X11/Xatom.h X11/Xmu/Atoms.h)
