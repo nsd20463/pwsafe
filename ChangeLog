@@ -1,0 +1,15 @@
+2004-01-23  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+        * pwsafe: updated man page and usage()
+          both of which were obsolete.
+        * pwsafe: released 0.1.1
+
+2004-01-22  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+        * pwsafe: initial release version 0.1.0
+
+2004-01-08  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: initial version.
+
+

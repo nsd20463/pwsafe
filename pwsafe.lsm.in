@@ -1,0 +1,17 @@
+Begin3
+Title:		pwsafe
+Version:	@VERSION@
+Entered-date:	@ISODATE@
+Description:	commandline tool compatible with Counterpane's Passwordsafe
+		@configure_input@
+Keywords:	passwordsafe password Counterpane
+Author: 	ndade@nsd.dyndns.org (Nicolas S. Dade)
+Maintained-by:	ndade@nsd.dyndns.org (Nicolas S. Dade)
+Primary-site:	nsd.dyndns.org/pwsafe
+		31k pwsafe-@VERSION@.tar.gz
+		500  pwsafe.lsm
+Alternate-site: 
+Original-site:  
+Platforms:      
+Copying-policy:	GNU copyleft
+End

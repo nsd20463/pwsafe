@@ -1,0 +1,27 @@
+	pwsafe - commandline tool compatible with Counterpane's Passwordsafe
+
+HOW TO BUILD FROM SOURCE TARBALL
+
+   Nothing special here. Just the usual
+   tar xzf <tarball>
+   cd <dir>
+   ./configure
+   make
+   make install
+   
+
+HOW TO BUILD FROM CVS
+
+   cd <dir>
+   autoheader     # generate config.h.in from configure.ac
+   automake       # generated Makefile.in from Makefile.am
+   autoconf       # generate configure from configure.ac
+   ./configure    # etc...; from here on you're on your own
+
+You'll need autoconf 2.5 or better, as well as the header files for X11,
+libreadline (which pulls in lib[n]curses) and openssl's libcrypto.
+
+So far I've only built it on various linuxes.
+
+
+	- Nicolas S. Dade <ndade@nsd.dyndns.org>

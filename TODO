@@ -1,0 +1,18 @@
+
+Add a --edit feature to edit an existing entry
+(change stuff)
+
+Add automatic random username and password generation
+
+Add menu based interactio (--add already does it)
+
+curses based interface?
+
+make secstring use secure storage either with a special allocator class or by rewriting it from scratch
+
+don't read entire db into RAM---just decrypt the name and the string lengths.
+--add can be done w/o decrypting anything!
+
+pwsafe-agent mode? (ala ssh-agent)
+
+
