@@ -1,3 +1,23 @@
+2004-02-20  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+        * pwsafe: added a cheap substitute for getopt_long
+          to help out OSes that don't have it (solaris). 
+          You can also use it by specifying --without-getopt_long
+          if you somehow don't like the better gnu one.
+        * pwsafe: fixed getyn(string&) returning true all 
+          the time, thus not allowing you to not use the 
+          default username. getyn(const char*) wasn't
+          broken so most YN questions were fine.
+        * pwsafe: fixed typo in question "user default
+          username?"
+        * pwsafe: release 0.1.5
+
+2004-02-17  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+        * pwsafe: added configure test for readline.h's
+          that are C++ safe but don't use 'const' in
+          their declarations. (openbsd)
+
 2004-02-11  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
         * pwsafe: fixed massive booboo in secalloc. It
