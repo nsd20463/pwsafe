@@ -30,10 +30,11 @@ case $1 in
     scp /tmp/$TGZ $SF_USER@cf-shell.sourceforge.net:$TGZ
     rm /tmp/$TGZ
 
-    # some hosts need custom stuff passed in to ./configure
+    # some hosts need custom stuff passed in to ./configure and their environment
     ppc_osx1_conf="--without-readline --with-openssl-dir=/sw"
     ppc_osx2_conf="--without-readline"
-    sparc_solaris1_conf="--without-readline"
+    sparc_solaris1_conf="--without-readline --with-openssl-dir=/usr/local/ssl"
+    sparc_solaris1_env="LD_LIBRARY_PATH=/usr/local/ssl/lib"
     x86_freebsd1_make=gmake
     x86_netbsd1_conf="--without-readline --without-x"
     x86_netbsd1_make=gmake
@@ -44,12 +45,13 @@ case $1 in
       RSH="ssh $SF_USER@cf-shell.sourceforge.net ssh $host"
       DIR=$host
       CONF="`echo $host|tr -- - _`_conf"
+      ENV="`echo $host|tr -- - _`_env"
       MAKE="`echo $host|tr -- - _`_make"
       if $RSH "rm -rf $DIR \; \
             mkdir -p $DIR \; \
             gunzip <$TGZ | tar xvf - -C $DIR" ; then
         if $RSH "cd $DIR \; ./configure ${!CONF-}"; then
-          $RSH "cd $DIR \; ${!MAKE-make} check"
+          $RSH "cd $DIR \; ${!ENV-} ${!MAKE-make} check"
         fi
       fi
     done
