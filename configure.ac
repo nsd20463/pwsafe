@@ -141,7 +141,7 @@ AC_CHECK_TYPE(socklen_t,[AC_DEFINE(HAVE_SOCKLEN_T, 1, [Define to 1 if the type s
 
 dnl Checks for library functions.
 AM_SYS_POSIX_TERMIOS
-if test "$am_cv_sys_posix_termios" != yes; then
+if test "$am_cv_sys_posix_termios" != yes -a "$ac_cv_sys_posix_termios" != yes; then
   AC_MSG_ERROR("POSIX termios operations are required")
 fi
 if test "$with_getopt_long" != no; then
@@ -266,29 +266,6 @@ typedef std::basic_string<char, std::string::traits_type, test_alloc> test_strin
 AC_LANG_POP(C++)
 
 
-dnl some systems do not support O_NOFOLLOW
-AC_MSG_CHECKING([if O_NOFOLLOW is supported])
-AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-#if HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-    ]],[[
-    int i = O_NOFOLLOW;
-    ]]
-  )],
-  [AC_DEFINE(HAVE_O_NOFOLLOW, 1, [Define to 1 if O_NOFOLLOW is supported])
-   AC_MSG_RESULT(yes)],
-  [AC_MSG_RESULT(no)])
-
-
 dnl some systems do not supply getline()
 AC_MSG_CHECKING([if getline() is supported])
 AC_COMPILE_IFELSE(
@@ -308,32 +285,6 @@ AC_COMPILE_IFELSE(
    AC_MSG_RESULT(yes)],
   [AC_MSG_RESULT(no)])
 
-
-
-dnl SCM_CREDENTIALS are nice for the paranoid, but aren't universally supported
-AC_MSG_CHECKING([if SCM_CREDENTIALS are supported])
-AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#if HAVE_SYS_SOCKET_H
-#include <sys/socket.h>
-#endif
-#if HAVE_SYS_UN_H
-#include <sys/un.h>
-#endif
-    ]],[[
-  struct ucred c;
-  socklen_t clen = sizeof(c);
-  int sock;
-  int one = 1;
-  sock = socket(AF_UNIX, SOCK_STREAM, 0);
-  setsockopt(sock, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
-  getsockopt(sock, SOL_SOCKET, SO_PEERCRED, &c, &clen);
-    ]]
-  )],
-  [AC_DEFINE(HAVE_SCM_CREDENTIALS, 1, [Define to 1 if linux SCM_CREDENTIALS are supported])
-   AC_MSG_RESULT(yes)],
-  [AC_MSG_RESULT(no)])
 
 
 dnl if we enabled debug, remove the -O2 and add -g; actually I override the -O2 by following it with -O0

@@ -1,3 +1,10 @@
+2005-02-17  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: apparently SUSE's autoconf's AC_SYS_POSIX_TERMIOS
+	  macro sets ac_sys_posix_termios rather than am_..., so
+	  now the if statement in configure.ac tests both.
+	  (reported by Jon Krom)
+	
 2004-10-05  Nicolas S. Dade  <ndade@nsd.dyndns.org>
   
 	* pwsafe: unknown tag/values in v2 files are preserved
