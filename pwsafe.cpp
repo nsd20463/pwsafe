@@ -155,6 +155,7 @@ static ssize_t getline(char**,size_t*,FILE*);
 
 // ------ end of fixups for various systems; on to the real program ------
 
+//#define INTERACTIVE_MODE // enable experimental interactive mode
 
 // The name the program was run with, stripped of any leading path
 const char *program_name = "pwsafe"; // make sure program_name always points to something valid so we can use it in constructors of globals
@@ -170,7 +171,12 @@ const char* arg_dbname = NULL;
 Version arg_dbversion = VERSION_UNKNOWN;
 const char* arg_mergedb = NULL;
 const char* arg_name = NULL;
-enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_MERGEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_INTERACT };
+enum OP { 
+  OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_MERGEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, 
+#ifdef INTERACTIVE_MODE
+  OP_INTERACT,
+#endif
+};
 OP arg_op = OP_NOP;
 //const char* arg_config = NULL;
 bool arg_casesensative = false;
@@ -202,7 +208,9 @@ static long_option const long_options[] =
   {"add", no_argument, 0, 'a'},
   {"edit", no_argument, 0, 'e'},
   {"delete", no_argument, 0, 'D'},
+#ifdef INTERACTIVE_MODE
   {"interact", no_argument, 0, 'I'&31},
+#endif
   // options
 //  {"config", required_argument, 0, 'F'},
   {"file", required_argument, 0, 'f'},
@@ -447,6 +455,7 @@ public:
 };
 
 
+#ifdef INTERACTIVE_MODE
 void interactive(DB& db) {
 
   if (!db.open())
@@ -528,33 +537,29 @@ void interactive(DB& db) {
       }
       // terminate argv; getopt_long() expects this
       argv[argc] = NULL;
-    }
+    } 
+
+    // reset some args to default values
+    arg_mergedb = NULL;
+    arg_name = NULL;
+    arg_op = OP_NOP;
+    arg_casesensative = false;
+    arg_echo = false;
+    arg_output = NULL;
+    arg_username = false;
+    arg_password = false;
+    arg_details = false;
+  #ifndef X_DISPLAY_MISSING
+    arg_xclip = false;
+    arg_selection = "both"; // by default copy to primary X selection and clipboard
+    // leave arg_ignore alone
+  #endif
 
     // now execute argv
     try {
       try {
         int idx = parse(argc, argv);
      
-  #ifndef X_DISPLAY_MISSING
-        // if no --ignore was specified, use the default
-        if (arg_ignore.empty()) {
-          const char* ig = getenv("PWSAFE_IGNORE");
-          if (!ig) 
-            // by default ignore requests from common clipboard managers
-            // xclipboard is the canonical one
-            // klipper from the KDE desktop
-            // wmcliphist from windowmaker
-            // ??? from gnome
-            ig = "xclipboard;klipper:wmcliphist";
-          while (*ig) {
-            const char*const q = ig;
-            while (*ig && *ig != ';') ++ig;
-            arg_ignore.insert(arg_ignore_t::value_type(q,ig-q));
-            while (*ig == ';') ++ig;
-          }
-        }
-  #endif
-        
         if (arg_op == OP_LIST && (arg_username || arg_password))
           // this is actually an OP_EMIT and not an OP_LIST
           arg_op = OP_EMIT;
@@ -709,7 +714,7 @@ void interactive(DB& db) {
     }
   }
 }
-
+#endif // INTERACTIVE_MODE
 
 int main(int argc, char **argv) {
   program_name = strrchr(argv[0], '/');
@@ -842,10 +847,12 @@ int main(int argc, char **argv) {
         if (rc) {
           if (arg_verbose > 0) printf("rng seeded with %d bytes from %s\n", rc, rng_filename);
         } else {
-          fprintf(stderr, "WARNING: %s unable to seed rng from %s\n", program_name, rng_filename);
+          if (arg_verbose >= -1) // two -q/--quiet's will turn this msg off
+            fprintf(stderr, "WARNING: %s unable to seed rng from %s\n", program_name, rng_filename);
         }
       } else {
-        fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
+        if (arg_verbose >= -1)
+          fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
       }
 
 #ifndef X_DISPLAY_MISSING
@@ -873,14 +880,18 @@ int main(int argc, char **argv) {
       case OP_ADD:
       case OP_EDIT:
       case OP_DELETE:
+#ifdef INTERACTIVE_MODE
       case OP_INTERACT:
+#endif
         {
           DB db(arg_dbname);
           try {
             switch (arg_op) {
+#ifdef INTERACTIVE_MODE
             case OP_INTERACT:
               interactive(db);
               break;
+#endif
             case OP_EXPORTDB:
               db.exportdb();
               break;
@@ -1044,12 +1055,14 @@ static int parse(int argc, char **argv) {
         else
           usage(true);
         break;
+#ifdef INTERACTIVE_MODE
       case 'I'&31:
         if (arg_op == OP_NOP)
           arg_op = OP_INTERACT;
         else
           usage(true);
         break;
+#endif
 //      case 'F':
 //        arg_config = optarg;
 //        break;
@@ -1152,7 +1165,7 @@ static void usage(bool fail) {
         "  -x, --xclip                force copying of entry to X selection\n"
         "  -d, --display=XDISPLAY     override $DISPLAY (implies -x)\n"
         "  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x)\n"
-        "  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard and klipper)\n"
+        "  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard, wmcliphist and klipper)\n"
 #endif
         "  -q, --quiet                print no extra information\n"
         "  -v, --verbose              print more information (can be repeated)\n"
@@ -2955,7 +2968,8 @@ secalloc::Pool::Pool(size_t n) : next(0), top(0), bottom(0), level(0) {
   if (rc) {
     static bool reported = false;
     if (!reported) {
-      fprintf(stderr, "WARNING: %s unable to use secure ram (need to be setuid root)\n", program_name);
+      if (arg_verbose >= 0)
+        fprintf(stderr, "WARNING: %s unable to use secure ram (need to be setuid root)\n", program_name);
       reported = true;
     }
   }
@@ -3084,7 +3098,7 @@ static int getopt_long(int argc, char*const argv[], const char* short_opts, cons
   
   const char*const p = argv[optind];
   if (p[0] != '-' || p[1] != '-')
-    // not a long option. since we don't reorder argv[] we just get getopt() have a crack at it
+    // not a long option. since we don't reorder argv[] we let getopt() have a crack at it
     return getopt(argc, argv, short_opts);
 
   while (lopts && lopts->name) {

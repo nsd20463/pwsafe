@@ -8,21 +8,21 @@
 	  macro sets ac_sys_posix_termios rather than am_..., so
 	  now the if statement in configure.ac tests both.
 	  (reported by Jon Krom)
-	
+
 2004-10-05  Nicolas S. Dade  <ndade@nsd.dyndns.org>
-  
+
 	* pwsafe: unknown tag/values in v2 files are preserved
 	  instead of being stripped. This is probably the right thing
 	  to do in the general case.
 
 2004-10-03  Nicolas S. Dade  <ndade@nsd.dyndns.org>
-  
+
 	* pwsafe: added testv2.dat and added matching test to
 	  ./selftest
 	* pwsafe: added --mergedb
 	
 2004-10-02  Nicolas S. Dade  <ndade@nsd.dyndns.org>
-  
+
 	* pwsafe: added -G/--ignore with default value {klipper,
 	  xclipboard}
 	* pwsafe: added --exportdb
@@ -34,7 +34,7 @@
 	  field> and you are done. The old methods also still apply.
 
 2004-03-01  Nicolas S. Dade  <ndade@nsd.dyndns.org>
-    
+
         * pwsafe: first try case sensative perfect match.
         * pwsafe: release 0.1.6
 
