@@ -736,6 +736,8 @@ static const char* pwsafe_strerror(int err) {
 #if READLINE_H_NEEDS_EXTERN_C
 extern "C" {
   static dummy_completion() // more hack job to keep compile warnings away
+#elif READLINE_H_USES_NO_CONST
+static char* dummy_completion(char*, int)
 #else
 static char* dummy_completion(const char*, int)
 #endif
@@ -760,7 +762,11 @@ static secstring getpw(const char*const prompt) {
 #if WITH_READLINE
   rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
 #endif
+#if READLINE_H_USES_NO_CONST
+  char* x = readline(const_cast<char*>(prompt));
+#else
   char* x = readline(prompt);
+#endif
   // restore echo
   tcsetattr(STDIN_FILENO, TCSANOW, &tio);
   // echo a linefeed since the user's <Enter> was not echoed
@@ -782,7 +788,11 @@ static secstring gettxt(const char*const prompt, const secstring& default_="") {
 #if WITH_READLINE
   rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
 #endif
+#if READLINE_H_USES_NO_CONST
+  char* x = readline(const_cast<char*>(prompt));
+#else
   char* x = readline(prompt);
+#endif
   if (x) {
     secstring xx(x);
     memset(x,0,strlen(x));

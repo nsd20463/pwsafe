@@ -101,6 +101,7 @@ if test "$with_readline" != no; then
 AC_CHECK_FUNC(readline, [], [AC_MSG_ERROR(readline() is needed)])
 fi
 
+
 if test "$with_readline" != no; then
 dnl older readline.h's declared readline() without any arguments and outside of 'extern "C"', which freaks out C++
 AC_LANG_PUSH(C++)
@@ -120,6 +121,37 @@ AC_COMPILE_IFELSE(
    AC_MSG_RESULT(yes)])
 AC_LANG_POP(C++)
 fi
+
+
+if test "$with_readline" != no; then
+dnl slightly newer but still broken readline.h's use extern "C" but don't declare arguments, so C++ freaks out because of the lack of 'const'ness
+AC_LANG_PUSH(C++)
+AC_MSG_CHECKING([if readline.h lacks 'const' in its declarations])
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM(
+    [[
+#include <stdio.h>
+#if READLINE_H_NEEDS_EXTERN_C
+extern "C" {
+#endif
+#include <readline/readline.h>
+#if READLINE_H_NEEDS_EXTERN_C
+} // terminate extern "C"
+#endif
+
+char* dummy_completion(const char*, int) { return 0; }
+    ]],[[
+  const char* prompt = "abc";
+  rl_completion_entry_function = dummy_completion;
+  char*x = readline(prompt);
+    ]]
+  )],
+  [AC_MSG_RESULT(no)],
+  [AC_DEFINE(READLINE_H_USES_NO_CONST, 1, [Define to 1 if readline/readline.h doesn't properly declare arguments to be const])
+   AC_MSG_RESULT(yes)])
+AC_LANG_POP(C++)
+fi
+
 
 dnl different versions of g++ implement allocators differently. Figure out what kind this g++ uses.
 dnl Note: g++ 3.0 is too broken to be supported, use 2.96 or 3.y, y>=1.
