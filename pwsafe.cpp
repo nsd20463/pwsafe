@@ -221,6 +221,7 @@ static long_option const long_options[] =
   {"ignore", required_argument, 0,'G'},
 #endif
   // standard stuff
+  {"quiet", no_argument, 0, 'q'},
   {"verbose", no_argument, 0, 'v'},
   {"help", no_argument, 0, 'h'},
   {"version", no_argument, 0, 'V'},
@@ -601,10 +602,10 @@ void interactive(DB& db) {
    
 
   #ifndef X_DISPLAY_MISSING
-        if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo || arg_xclip))
+        if (arg_verbose >= 0 && (arg_password || arg_username) && (arg_echo || arg_xclip))
           printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
   #else
-        if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo))
+        if (arg_verbose >= 0 && (arg_password || arg_username) && (arg_echo))
           printf("Going to print %s to stdout\n", arg_password&&arg_username?"login and password":arg_password?"password":"login");
   #endif
 
@@ -656,7 +657,7 @@ void interactive(DB& db) {
 
               // backup and save if changes have occured
               if (db.is_changed()) {
-                if (arg_verbose) printf("saving changes to %s\n", db.dbname);
+                if (arg_verbose > 0) printf("saving changes to %s\n", db.dbname);
                 if (!(db.backup() && db.save()))
                   throw FailEx();
               }
@@ -821,7 +822,7 @@ int main(int argc, char **argv) {
       if (RAND_file_name(rng_filename,sizeof(rng_filename))) {
         int rc = RAND_load_file(rng_filename,-1);
         if (rc) {
-          if (arg_verbose) printf("rng seeded with %d bytes from %s\n", rc, rng_filename);
+          if (arg_verbose > 0) printf("rng seeded with %d bytes from %s\n", rc, rng_filename);
         } else {
           fprintf(stderr, "WARNING: %s unable to seed rng from %s\n", program_name, rng_filename);
         }
@@ -830,10 +831,10 @@ int main(int argc, char **argv) {
       }
 
 #ifndef X_DISPLAY_MISSING
-      if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo || arg_xclip))
+      if (arg_verbose >= 0 && (arg_password || arg_username) && (arg_echo || arg_xclip))
         printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
 #else
-      if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo))
+      if (arg_verbose >= 0 && (arg_password || arg_username) && (arg_echo))
         printf("Going to print %s to stdout\n", arg_password&&arg_username?"login and password":arg_password?"password":"login");
 #endif
       DB::Init();
@@ -894,7 +895,7 @@ int main(int argc, char **argv) {
 
             // backup and save if changes have occured
             if (db.is_changed()) {
-              if (arg_verbose) printf("saving changes to %s\n", db.dbname);
+              if (arg_verbose > 0) printf("saving changes to %s\n", db.dbname);
               if (!(db.backup() && db.save()))
                 throw FailEx();
             }
@@ -921,7 +922,7 @@ int main(int argc, char **argv) {
       // save the rng seed for next time
       if (rng_filename[0]) {
         int rc = RAND_write_file(rng_filename);
-        if (arg_verbose) printf("wrote %d bytes to %s\n", rc, rng_filename);
+        if (arg_verbose > 0) printf("wrote %d bytes to %s\n", rc, rng_filename);
       } // else they already got an error above when we tried to read rng_filename
    
       // and we are done
@@ -964,6 +965,7 @@ static int parse(int argc, char **argv) {
           "s:"  // x selection
           "G:"  // ignore
 #endif
+          "q"   // quiet
           "v"   // verbose
           "g"   // debug
           "h"   // help
@@ -1073,6 +1075,9 @@ static int parse(int argc, char **argv) {
         arg_ignore.insert(optarg);
         break;
 #endif
+      case 'q':
+        arg_verbose--;
+        break;
       case 'v':
         arg_verbose++;
         break;
@@ -1121,6 +1126,7 @@ static void usage(bool fail) {
         "  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x)\n"
         "  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard and klipper)\n"
 #endif
+        "  -q, --quiet                print no extra information\n"
         "  -v, --verbose              print more information (can be repeated)\n"
         "  -h, --help                 display this help and exit\n"
         "  -V, --version              output version information and exit\n"
@@ -1457,7 +1463,7 @@ static secstring enter_password(const char* prompt1, const char* prompt2) {
 // print txt to outfile / copy to X selection
 static void emit(const secstring& name, const char*const what, const secstring& txt) {
   if (arg_echo) {
-    if (isatty(fileno(outfile)))
+    if (arg_verbose >= 0 && isatty(fileno(outfile)))
       fprintf(outfile,"%s for %s: ", what, name.c_str()); // if we are printing to the tty then we can be more verbose
     fprintf(outfile,"%s\n", txt.c_str());
   }
@@ -1561,10 +1567,13 @@ static void emit(const secstring& name, const char*const what, const secstring& 
             }
 
             // let the user know
-            if (xsel1 && xsel2)
-              printf("You are ready to paste the %s for %s from %s and %s\nPress any key when done\n", what, name.c_str(), stxt1, stxt2);
-            else if (xsel1)
-              printf("You are ready to paste the %s for %s from %s\nPress any key when done\n", what, name.c_str(), stxt1);
+            if (xsel1 && xsel2) {
+              if (arg_verbose >= 0)
+                printf("You are ready to paste the %s for %s from %s and %s\nPress any key when done\n", what, name.c_str(), stxt1, stxt2);
+            } else if (xsel1) {
+              if (arg_verbose >= 0)
+                printf("You are ready to paste the %s for %s from %s\nPress any key when done\n", what, name.c_str(), stxt1);
+            }
           }
         }
         else if (xev.type == SelectionRequest) {
@@ -1643,9 +1652,10 @@ static void emit(const secstring& name, const char*const what, const secstring& 
               }
 
               if (xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
-                if (!fakeout)
-                  printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
-                else if (arg_verbose) 
+                if (!fakeout) {
+                  if (arg_verbose >= 0)
+                    printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
+                } else if (arg_verbose > 0) 
                   printf("Ignoring request from %s@%s\n", requestor, host);
               }
 
@@ -1722,7 +1732,7 @@ static void emit(const secstring& name, const char*const what, const secstring& 
 
     tcsetattr(STDIN_FILENO, TCSANOW, &tio);
 
-    if (arg_verbose>1) printf("X selection%s cleared\n",(num_sel>1?"s":""));
+    if (arg_verbose > 1) printf("X selection%s cleared\n",(num_sel>1?"s":""));
 
     if (stxt1) XFree(stxt1);
     if (stxt2) XFree(stxt2);
@@ -1817,7 +1827,7 @@ DB::~DB() {
 }
 
 void DB::createdb(const char* dbname) {
-  if (arg_verbose) printf("creating %s\n", dbname);
+  if (arg_verbose > 0) printf("creating %s\n", dbname);
   
   // be sure not to overwrite an existing file
   struct stat s;
@@ -1908,12 +1918,12 @@ bool DB::merge(const Entry& e, bool overwrite) {
   }
   entries.insert(entries_t::value_type(gn,e));
   changed = true;
-  if (arg_verbose) printf("%s %s\n", (overwrote?"overwrote":"added"), gn.c_str());
+  if (arg_verbose > 0) printf("%s %s\n", (overwrote?"overwrote":"added"), gn.c_str());
   return true;
 }
 
 void DB::mergedb(DB& db2) {
-  if (arg_verbose) printf("merging %s into %s\n", db2.dbname, dbname);
+  if (arg_verbose > 0) printf("merging %s into %s\n", db2.dbname, dbname);
 
   if (open() && db2.open()) {
     int num_merged = 0, num_skipped = 0, num_dup = 0;
@@ -1925,7 +1935,7 @@ void DB::mergedb(DB& db2) {
         const Entry& f = j->second;
 
         if (e == f) {
-          if (arg_verbose) printf("skipping duplicate entry %s\n", e.groupname().c_str());
+          if (arg_verbose > 0) printf("skipping duplicate entry %s\n", e.groupname().c_str());
           num_dup++;
           done = true;
           break;
@@ -1953,13 +1963,14 @@ void DB::mergedb(DB& db2) {
     if (arg_dbversion != version)
       changed = true;
 
-    printf("Merged %d entries; skipped %d; %d duplicates.\n", num_merged, num_skipped, num_dup);
+    if (arg_verbose >= 0) 
+      printf("Merged %d entries; skipped %d; %d duplicates.\n", num_merged, num_skipped, num_dup);
   } else
     throw FailEx();
 }
 
 void DB::passwd() {
-  if (arg_verbose) printf("rekeying %s\n", dbname);
+  if (arg_verbose > 0) printf("rekeying %s\n", dbname);
 
   if (!(open()
         && header->create()
@@ -2068,7 +2079,7 @@ bool DB::open() {
           bool skip = false;
           if (version == VERSION_UNKNOWN) {
             version = (e.name == e.MAGIC_V2_NAME /* password save 2.05 does not check e.password, so I don't either && e.password == "2.0"*/) ? VERSION_2_0 : VERSION_1_7;
-            if (arg_verbose) printf("loading version %s database\n", VERSION_NAME[version]);
+            if (arg_verbose > 0) printf("loading version %s database\n", VERSION_NAME[version]);
             if (version != VERSION_1_7) {
               v2_preferences = e.notes; // save preferences away so we can rewrite them when saving the file
               skip = true;
@@ -2112,7 +2123,7 @@ bool DB::backup() {
   const std::string backupname_str = dbname_str+'~';
   const char*const backupname = backupname_str.c_str();
 
-  if (arg_verbose) printf("backing up %s to %s\n", dbname, backupname);
+  if (arg_verbose > 0) printf("backing up %s to %s\n", dbname, backupname);
 
   FILE* f = fopen(dbname, "rb");
   if (!f) {
@@ -2191,7 +2202,7 @@ bool DB::restore() {
 bool DB::save() {
   Version saveversion = (arg_dbversion != VERSION_UNKNOWN ? arg_dbversion : version); // if the user specifies a dbversion then we convert
   
-  if (arg_verbose) printf("writing %s version %s\n", dbname, VERSION_NAME[saveversion]);
+  if (arg_verbose > 0) printf("writing %s version %s\n", dbname, VERSION_NAME[saveversion]);
 
   // if this is a version change, then ask
   if (saveversion != version && 
@@ -2254,7 +2265,7 @@ bool DB::save() {
 
 
 bool DB::find(matches_t& matches, const char* regex_str /* might be NULL */) {
-  if (arg_verbose) printf("searching %s for %s\n", dbname, regex_str?regex_str:"<all>");
+  if (arg_verbose > 0) printf("searching %s for %s\n", dbname, regex_str?regex_str:"<all>");
 
   regex_t regex;
   if (regex_str) {
@@ -2364,7 +2375,7 @@ void DB::list(const char* regex /* might be NULL */) {
           }
         }
 
-        if (arg_verbose) {
+        if (arg_verbose > 0) {
           if (!e.uuid.empty())
             // print out the UUID too
             fprintf(outfile, "%s\n", formatuuid(e.uuid).c_str());
@@ -2406,7 +2417,7 @@ void DB::emit(const char* regex, bool username, bool password) {
 }
 
 void DB::add(const char* name /* might be NULL */) {
-  if (arg_verbose) printf("adding %s%sto %s\n", (name?name:""),(name?" ":""), dbname);
+  if (arg_verbose > 0) printf("adding %s%sto %s\n", (name?name:""),(name?" ":""), dbname);
   if (open()) {
     Entry e;
     if (name) {
@@ -2525,7 +2536,7 @@ void DB::edit(const char* regex) {
  
 
 void DB::del(const char* name) {
-  if (arg_verbose) printf("deleting %s from %s\n", name, dbname);
+  if (arg_verbose > 0) printf("deleting %s from %s\n", name, dbname);
   if (open()) {
     entries_t::iterator i = entries.find(name);
     if (i == entries.end()) {
@@ -2686,7 +2697,7 @@ bool DB::Entry::read(FILE* f, DB::Context& c) {
           case PASSWORD: password=s; break;
           case END: break;
           default:
-            if (arg_verbose) printf("reading field of unknown type %u\n", static_cast<int>(type));
+            if (arg_verbose > 0) printf("reading field of unknown type %u\n", static_cast<int>(type));
             extras.push_back(extras_t::value_type(type,s));
         }
       }

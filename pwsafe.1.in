@@ -107,6 +107,9 @@ Add NAME to windows or hosts that do not receive the selection. If just NAME is 
 .B  \-v, \-\-verbose
 Print more information.
 .TP 
+.B  \-q, \-\-quiet
+Print less information. In fact, print only exactly what was requested.
+.TP 
 .B  \-h, \-\-help
 Show summary of options.
 .TP 

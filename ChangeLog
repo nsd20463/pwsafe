@@ -1,3 +1,7 @@
+2005-02-18  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: added -q/--quiet at Jon Krom's request.
+
 2005-02-17  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: apparently SUSE's autoconf's AC_SYS_POSIX_TERMIOS
