@@ -2077,7 +2077,7 @@ void secalloc::cleanup() {
 void* secalloc::allocate(size_t n) {
   if (!pools || pools->top - pools->level < n) {
     // need a new pool
-    Pool* p = new Pool(std::max(n, static_cast<size_t>(0*pagesize)));
+    Pool* p = new Pool(std::max(n, static_cast<size_t>(16*pagesize)));
     p->next = pools;
     pools = p;
   }
