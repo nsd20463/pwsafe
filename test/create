@@ -1,0 +1,100 @@
+#!/bin/sh
+
+if [ -z "$srcdir" ]; then
+ srcdir=.
+fi
+
+pwsafe=$srcdir/pwsafe
+file=/tmp/create_test.dat$$
+err=/tmp/create_test.err$$
+pw=abcdefg
+
+# create a new empty database
+[ ! -e $file ] || rm $file
+if [ -e $file ]; then
+  echo "Can't clean up $file. Please delete it yourself and then rerun this test"
+  exit 1
+fi
+
+echo -n "testing creation of new db $file: "
+out=`$pwsafe 2>$err --createdb -f $file <<EOF
+$pw
+$pw
+EOF
+`
+if [ $? -ne 0 -o ! -r $file ]; then
+  echo "FAILED!"
+  echo "pwsafe is NOT WORKING PROPERLY. It is unable to create $file (passphase: $pw)."
+  echo "Here is the output:"
+  echo "$out"
+  cat $err
+  exit 1
+else
+  echo OK
+fi
+
+# read back new and supposedly empty database
+echo -n "testing readback of new db $file: "
+out=`$pwsafe 2>$err --exportdb -f $file <<EOF
+$pw
+EOF
+`
+if [ $? -ne 0 -o "$out" != \
+"Enter passphrase for $file: # passwordsafe version 2.0 database
+uuid	group	name	login	passwd	notes" ]; then
+  echo "FAILED!"
+  echo "pwsafe is NOT WORKING PROPERLY. It is unable to read back $file (passphrase: $pw)."
+  echo "Here is the output:"
+  echo "$out"
+  cat $err
+  exit 1
+else
+  echo OK
+fi
+
+# add an entry to the new database
+echo -n "testing adding of an entry to db $file: "
+out=`$pwsafe 2>$err --add "test group.test name" -f $file <<EOF
+$pw
+test login
+test pw
+test pw
+test notes
+EOF
+`
+if [ $? -ne 0 ]; then
+  echo "FAILED!"
+  echo "pwsafe is NOT WORKING PROPERLY. It is unable to add entry to $file (passphrase: $pw)."
+  echo "Here is the output:"
+  echo "$out"
+  cat $err
+  exit 1
+else
+  echo OK
+fi
+
+# read back new entry
+echo -n "testing readback of db $file: "
+out=`$pwsafe 2>$err --exportdb -f $file <<EOF
+$pw
+EOF
+`
+if [ $? -ne 0 ] || ! echo "$out" | grep \
+"# passwordsafe version 2.0 database
+uuid	group	name	login	passwd	notes
+........-....-....-....-............	test group	test name	test login	test pw	test notes" >/dev/null ; then
+  echo "FAILED!"
+  echo "pwsafe is NOT WORKING PROPERLY. It is unable to read back its new entry in $file (passphrase: $pw)."
+  echo "Here is the output:"
+  echo "$out"
+  cat $err
+  exit 1
+else
+  echo OK
+fi
+
+# cleanup after ourselves
+rm $file $file~ $err
+
+exit 0
+

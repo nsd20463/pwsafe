@@ -1,0 +1,16 @@
+#!/bin/sh
+
+if [ -z "$srcdir" ]; then
+ srcdir=.
+fi
+
+pwsafe=$srcdir/pwsafe
+file=/tmp/create_test.dat$$
+err=/tmp/create_test.err$$
+pw=abcdefg
+
+# cleanup after ourselves
+rm $file $file~ $err
+
+exit 0
+

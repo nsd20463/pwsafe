@@ -1,3 +1,9 @@
+2005-03-13  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: removed selftest script and created
+          a new dir test/ for holding unit tests.
+          Added a number of unit tests.
+
 2005-03-11  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: g++ 3.4.2 changed the interface from the

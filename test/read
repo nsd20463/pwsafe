@@ -6,11 +6,12 @@ fi
 
 # test pwsafe on known-good test.dat database, which uses "abc" as passphrase and contains one entry named "testing".
 test() {
+ pwsafe=$srcdir/pwsafe
  file="$1"
  pw="$2"
  
  echo -n "testing pwsafe against $file database: "
- out=`./pwsafe -f "$file" 2>&1 <<EOF
+ out=`$pwsafe -f "$file" 2>&1 <<EOF
 $pw
 EOF
 `
