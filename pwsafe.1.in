@@ -46,6 +46,9 @@ Create a new database.
 .B  \-\-exportdb
 Export database as text.
 .TP 
+.B  \-\-mergedb=DATABASE_FILE
+Merge DATABASE_FILE into database. Common entries are merged interactively.
+.TP 
 .B  \-\-passwd
 Change the database's passphrase.
 .TP 
@@ -150,7 +153,10 @@ pwsafe \-a test
 Copy username and password of 'test' to console or X clipboard & primary selection.
 
 pwsafe \-up test
+.TP 
+Upgrade a version passwordsafe version 1.7 database to version 2.0 (we do this by merging it with itself, but specifying version 2 output)
 
+pwsafe \-\-mergedb $HOME/.pwsafe.dat \-\-dbversion 2
 .SH "AUTHOR"
 Nicolas S. Dade <ndade@nsd.dyndns.org>.
 .SH "REPORTING BUGS"

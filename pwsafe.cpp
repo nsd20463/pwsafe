@@ -153,13 +153,15 @@ int agent_sock = -1;
 FILE* agent_fsock = NULL;
 
 // database version
-enum Version { VERSION_UNKNOWN, VERSION_1_9, VERSION_2_0 };
+enum Version { VERSION_UNKNOWN, VERSION_1_7, VERSION_2_0 };
+const static char*const VERSION_NAME[] = { "<unknown>", "1.7", "2.0" };
 
 // Option flags and variables
 const char* arg_dbname = NULL;
 Version arg_dbversion = VERSION_UNKNOWN;
+const char* arg_mergedb = NULL;
 const char* arg_name = NULL;
-enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_AGENT };
+enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_MERGEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_AGENT };
 OP arg_op = OP_NOP;
 //const char* arg_config = NULL;
 bool arg_casesensative = false;
@@ -186,6 +188,7 @@ static long_option const long_options[] =
   // commands
   {"createdb", no_argument, 0, 'C'},
   {"exportdb", no_argument, 0, 'E'&31},
+  {"mergedb", required_argument, 0, 'M'&31},
   {"passwd", no_argument, 0, 'P'},
   {"list", no_argument, 0, 'L'},
   {"add", no_argument, 0, 'a'},
@@ -386,6 +389,9 @@ private:
     bool write(FILE*, Context&) const;
 
     bool operator!=(const Entry&) const;
+    bool operator==(const Entry& e) const { return !operator!=(e); }
+
+    secstring groupname() const;
   };
   typedef std::map<secstring, Entry> entries_t;
   entries_t entries;
@@ -402,6 +408,7 @@ private:
   bool getkey(bool test, const char* prompt1="Enter passphrase", const char* prompt2="Reenter passphrase"); // get/verify passphrase
   bool open(); // call getkey(), read file into entries map
 
+  bool merge(const Entry&, bool overwrite=false); // merge entry into database, replacing any matching entry
   bool find(matches_t&, const char* regex); // find all entries matching regex
   const Entry& find1(const char* regex); // find the one entry either == regex or matching; throw FailEx if 0 or >1 match
 public:
@@ -414,6 +421,7 @@ public:
 
   static void createdb(const char* dbname);
   void exportdb();
+  void mergedb(DB&);
   void passwd();
   void list(const char* regex);
   void emit(const char* regex, bool username, bool password);
@@ -600,7 +608,7 @@ int main(int argc, char **argv) {
                   agent_sock = -1;
                 } else {
                   // ok if we get this far we are ok
-                  if (arg_verbose) fprintf(stderr, "Connected succesfuly with pwsafe agent\n");
+                  if (arg_verbose) fprintf(stderr, "connected succesfuly with pwsafe agent\n");
                 }
               }
             } else {
@@ -631,6 +639,7 @@ int main(int argc, char **argv) {
         DB::createdb(arg_dbname);
         break;
       case OP_EXPORTDB:
+      case OP_MERGEDB:
       case OP_PASSWD:
       case OP_LIST:
       case OP_EMIT:
@@ -643,6 +652,12 @@ int main(int argc, char **argv) {
             switch (arg_op) {
             case OP_EXPORTDB:
               db.exportdb();
+              break;
+            case OP_MERGEDB:
+              {
+                DB db2(arg_mergedb);
+                db.mergedb(db2);
+              }
               break;
             case OP_PASSWD:
               db.passwd();
@@ -671,7 +686,7 @@ int main(int argc, char **argv) {
 
             // backup and save if changes have occured
             if (db.is_changed()) {
-              if (arg_verbose) printf("Saving changes to %s\n", db.dbname);
+              if (arg_verbose) printf("saving changes to %s\n", db.dbname);
               if (!(db.backup() && db.save()))
                 throw FailEx();
             }
@@ -799,7 +814,7 @@ int main(int argc, char **argv) {
       // save the rng seed for next time
       if (rng_filename[0]) {
         int rc = RAND_write_file(rng_filename);
-        if (arg_verbose) printf("Wrote %d bytes to %s\n", rc, rng_filename);
+        if (arg_verbose) printf("wrote %d bytes to %s\n", rc, rng_filename);
       } // else they already got an error above when we tried to read rng_filename
    
       // and we are done
@@ -867,6 +882,13 @@ static int parse(int argc, char **argv) {
         else
           usage(true);
         break;
+      case 'M'&31:
+        if (arg_op == OP_NOP) {
+          arg_op = OP_MERGEDB;
+          arg_mergedb = optarg;
+        } else
+          usage(true);
+        break;
       case 'P':
         if (arg_op == OP_NOP)
           arg_op = OP_PASSWD;
@@ -932,7 +954,7 @@ static int parse(int argc, char **argv) {
         break;
       case 'V'&31:
         switch (strtol(optarg, 0, 10)) {
-          case 1: arg_dbversion = VERSION_1_9; break;
+          case 1: arg_dbversion = VERSION_1_7; break;
           case 2: arg_dbversion = VERSION_2_0; break;
           default: usage(true);
         }
@@ -1008,7 +1030,7 @@ static void usage(bool fail) {
         "  -p, --password             emit password of listed account\n"
         "  -E, --echo                 force echoing of entry to stdout\n"
         "  -o, --output=FILE          redirect output to file (implies -E)\n"
-        "  --dbversion=[1|2]            specify database file version (default is 2)\n"
+        "  --dbversion=[1|2]          specify database file version (default is 2)\n"
 #ifndef X_DISPLAY_MISSING
         "  -x, --xclip                force copying of entry to X selection\n"
         "  -d, --display=XDISPLAY     override $DISPLAY (implies -x)\n"
@@ -1022,6 +1044,7 @@ static void usage(bool fail) {
         "Commands:\n"
         "  --createdb                 create an empty database\n"
         "  --exportdb                 dump database as text\n"
+        "  --mergedb=DATABASE_FILE2   merge entries from FILE2 into database\n"
         "  --passwd                   change database passphrase\n"
         "  [--list] [REGEX]           list all [matching] entries. If -u and/or -p are given, only one entry may match\n"
         "  -a, --add [NAME]           add an entry\n"
@@ -1720,6 +1743,19 @@ void DB::createdb(const char* dbname) {
     throw FailEx();
 }
 
+// format a uuid into text
+static secstring formatuuid(const secstring& uuid) {
+  unsigned char uuid_array[16];
+  char buf[16*3];
+  memcpy(uuid_array, uuid.c_str(), sizeof(uuid_array));
+  snprintf(buf, sizeof(buf),"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+          uuid_array[0], uuid_array[1], uuid_array[2], uuid_array[3],
+          uuid_array[4], uuid_array[5], uuid_array[6], uuid_array[7],
+          uuid_array[8], uuid_array[9], uuid_array[10], uuid_array[11],
+          uuid_array[12], uuid_array[13], uuid_array[14], uuid_array[15]);
+  return buf;
+}
+
 static secstring xmlescape(const secstring& s) {
   // escape any non-xml characters and enclose the whole string in ""
   secstring out;
@@ -1752,11 +1788,84 @@ static secstring xmlescape(const secstring& s) {
 void DB::exportdb() {
   matches_t matches;
   if (open()) {
-    fprintf(outfile,"%s\t%s\t%s\t%s\n", "name", "login", "passwd", "notes");
+
+    fprintf(outfile,"# passwordsafe version %s database\n", VERSION_NAME[version]);
+
+    if (version == VERSION_1_7) fprintf(outfile, "%s\t%s\t%s\t%s\n", "name", "login", "passwd", "notes");
+    else fprintf(outfile,"%s\t%s\t%s\t%s\t%s\t%s\n", "uuid", "group", "name", "login", "passwd", "notes");
+    
     for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
       const Entry& e = i->second;
-      fprintf(outfile,"%s\t%s\t%s\t%s\n", xmlescape(e.name).c_str(), xmlescape(!e.default_login?e.login:"[default]").c_str(), xmlescape(e.password).c_str(), xmlescape(e.notes).c_str());
+      if (version == VERSION_1_7)
+        fprintf(outfile,"%s\t%s\t%s\t%s\n", xmlescape(e.name).c_str(), xmlescape(!e.default_login?e.login:"[default]").c_str(), xmlescape(e.password).c_str(), xmlescape(e.notes).c_str());
+      else
+        fprintf(outfile,"%s\t%s\t%s\t%s\t%s\t%s\n", xmlescape(formatuuid(e.uuid)).c_str(), xmlescape(e.group).c_str(), xmlescape(e.name).c_str(), xmlescape(!e.default_login?e.login:"[default]").c_str(), xmlescape(e.password).c_str(), xmlescape(e.notes).c_str());
     }
+  } else
+    throw FailEx();
+}
+
+bool DB::merge(const Entry& e, bool overwrite) {
+  bool overwrote = false;
+  secstring gn = e.groupname();
+  {
+    entries_t::iterator i = entries.find(gn);
+    if (i != entries.end()) {
+      if (overwrite) {
+        entries.erase(i);
+        overwrote = true;
+      } else
+        return false;
+    }
+  }
+  entries.insert(entries_t::value_type(gn,e));
+  changed = true;
+  if (arg_verbose) printf("%s %s\n", (overwrote?"overwrote":"added"), gn.c_str());
+  return true;
+}
+
+void DB::mergedb(DB& db2) {
+  if (arg_verbose) printf("merging %s into %s\n", db2.dbname, dbname);
+
+  if (open() && db2.open()) {
+    int num_merged = 0, num_skipped = 0, num_dup = 0;
+
+    for (entries_t::const_iterator i=db2.entries.begin(); i!=db2.entries.end(); ++i) {
+      const Entry& e = i->second;
+      bool done = false;
+      for (entries_t::iterator j=entries.begin(); j!=entries.end(); ++j) {
+        const Entry& f = j->second;
+
+        if (e == f) {
+          if (arg_verbose) printf("skipping duplicate entry %s\n", e.groupname().c_str());
+          num_dup++;
+          done = true;
+          break;
+        }
+
+        if ((e.uuid == f.uuid && !e.uuid.empty()) ||
+            e.groupname() == f.groupname()) {
+          if (getyn("Entry "+e.groupname()+" already exists. Overwrite ? [n] ", false)) {
+            merge(e,true);
+            num_merged++;
+          } else
+            num_skipped++;
+          done = true;
+          break;
+        }
+      }
+      if (!done) {
+        merge(e);
+        num_merged++;
+      }
+    }
+    
+    // if the user specified the dbversion then consider that to be a change, so the use can mergedb a
+    // database with itself in order to change version (yeah, it's kinda a hack, but it's also kinda unixy)
+    if (arg_dbversion != version)
+      changed = true;
+
+    printf("Merged %d entries; skipped %d; %d duplicates.\n", num_merged, num_skipped, num_dup);
   } else
     throw FailEx();
 }
@@ -1870,14 +1979,14 @@ bool DB::open() {
           // version 2 files are destinguished by a magic starting entry
           bool skip = false;
           if (version == VERSION_UNKNOWN) {
-            version = (e.name == e.MAGIC_V2_NAME /* password save 2.05 does not check e.password, so I don't either && e.password == "2.0"*/) ? VERSION_2_0 : VERSION_1_9;
-            if (arg_verbose) printf("loading version %d database\n", static_cast<int>(version));
-            if (version == VERSION_2_0) {
+            version = (e.name == e.MAGIC_V2_NAME /* password save 2.05 does not check e.password, so I don't either && e.password == "2.0"*/) ? VERSION_2_0 : VERSION_1_7;
+            if (arg_verbose) printf("loading version %s database\n", VERSION_NAME[version]);
+            if (version != VERSION_1_7) {
               v2_preferences = e.notes; // save preferences away so we can rewrite them when saving the file
               skip = true;
             }
           }
-          if (!skip) entries.insert(entries_t::value_type(e.name,e));
+          if (!skip) entries.insert(entries_t::value_type(e.groupname(),e));
         } else {
           if (errno || !feof(file)) {
             delete ctxt;
@@ -1898,8 +2007,13 @@ bool DB::open() {
     fprintf(stderr, "Can't close %s: %s\n", dbname, strerror(errno));
     return false;
   }
+
+  if (version == VERSION_UNKNOWN) {
+    // assume empty files are v1.7, since a version 2.0 "empty" file would have contained the magic v2.0 entry
+    version = VERSION_1_7;
+  }
  
-  if (arg_verbose > 1) printf("Read in %u entries\n", entries.size());
+  if (arg_verbose > 1) printf("read in %u entries\n", entries.size());
 
   opened = true;
   return true;
@@ -1987,14 +2101,14 @@ bool DB::restore() {
 }
 
 bool DB::save() {
-  if (arg_verbose) printf("writing %s\n", dbname);
-
   Version saveversion = (arg_dbversion != VERSION_UNKNOWN ? arg_dbversion : version); // if the user specifies a dbversion then we convert
-  if (saveversion != version) {
-    if (!getyn(std::string("Confirm overwriting ")+dbname+" with a version "+(saveversion==VERSION_1_9?"1.9":"2.0")+" database file ? ")) {
+  
+  if (arg_verbose) printf("writing %s version %s\n", dbname, VERSION_NAME[saveversion]);
+
+  // if this is a version change, then ask
+  if (saveversion != version && 
+      !getyn(std::string("Confirm overwriting version ")+VERSION_NAME[version]+" database "+dbname+" with a version "+VERSION_NAME[saveversion]+" database file ? "))
       return false;
-    }
-  }
 
   // we use a new salt and IV every time we save
   if (!header->resalt())
@@ -2016,13 +2130,13 @@ bool DB::save() {
 
   Context*const ctxt = new Context(*header, passphrase, saveversion);
   try {
-    if (saveversion == VERSION_2_0) {
+    if (saveversion != VERSION_1_7) {
       // write the magic entry
       Entry e;
       e.name = Entry::MAGIC_V2_NAME;
       e.password = Entry::MAGIC_V2_PASSWORD;
       e.notes = v2_preferences;
-      saveversion = VERSION_1_9; // temporarily true, since first entry is always written in v1.9 style
+      saveversion = VERSION_1_7; // temporarily true, since first entry is always written in v1.9 style
       e.write(f,*ctxt);
       saveversion = VERSION_2_0;
     }
@@ -2073,7 +2187,7 @@ bool DB::find(matches_t& matches, const char* regex_str /* might be NULL */) {
 
   for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
     const Entry& e = i->second;
-    if (!regex_str || !regexec(&regex, e.name.c_str(), 0,NULL, 0))
+    if (!regex_str || !regexec(&regex, e.groupname().c_str(), 0,NULL, 0))
       matches.push_back(&e);
   }
 
@@ -2089,7 +2203,7 @@ const DB::Entry& DB::find1(const char* regex) {
     // first-first, try with a case sensative comparison even though they didn't ask for that
     for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
       const Entry& e = i->second;
-      if (strcmp(regex,e.name.c_str()) == 0) {
+      if (strcmp(regex,e.groupname().c_str()) == 0) {
         return e;
       }
     }
@@ -2100,7 +2214,7 @@ const DB::Entry& DB::find1(const char* regex) {
     matches_t matches;
     for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
       const Entry& e = i->second;
-      if (strcasecmp(regex,e.name.c_str()) == 0) {
+      if (strcasecmp(regex,e.groupname().c_str()) == 0) {
         matches.push_back(&e);
       }
     }
@@ -2118,7 +2232,7 @@ const DB::Entry& DB::find1(const char* regex) {
       printf("More than one matching entry: ");
       int count = 0;
       for (matches_t::const_iterator i=matches.begin(); i!=matches.end() && count < 3; ++i, ++count)
-        printf("%s%s", (count?", ":""), (*i)->name.c_str());
+        printf("%s%s", (count?", ":""), (*i)->groupname().c_str());
       if (count != matches.size())
         printf(", ... (%u more) ", matches.size()-3);
       printf(".\n");
@@ -2136,13 +2250,9 @@ void DB::list(const char* regex /* might be NULL */) {
     for (matches_t::const_iterator i=matches.begin(); i!=matches.end(); ++i) {
       const Entry& e = **i;
     
-      // prefix the name with the group, if it exists
-      if (!e.group.empty())
-        fprintf(outfile,"%s.", e.group.c_str());
-        
       if (arg_details) {
         // print out the name
-        fprintf(outfile,"%s", e.name.c_str());
+        fprintf(outfile,"%s", e.groupname().c_str());
         
         // append the login if it exists
         if (!e.login.empty())
@@ -2151,11 +2261,7 @@ void DB::list(const char* regex /* might be NULL */) {
           fprintf(outfile,"  -  [%s]\n", e.the_default_login.c_str());
         else
           fprintf(outfile,"\n");
-      } else
-        // just print out the name
-        fprintf(outfile,"%s\n", e.name.c_str());
  
-      if (arg_details) {
         // print out the notes, prefixing each line with "> "
         if (!e.notes.empty()) {
           const char* p = e.notes.c_str();
@@ -2169,18 +2275,13 @@ void DB::list(const char* regex /* might be NULL */) {
             p = q;
           }
         }
-      }
 
-      if (!e.uuid.empty() && arg_details && arg_verbose) {
-        // print out the UUID too
-        unsigned char uuid_array[16];
-        memcpy(uuid_array, e.uuid.c_str(), sizeof(uuid_array));
-        fprintf(outfile,"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n",
-                uuid_array[0], uuid_array[1], uuid_array[2], uuid_array[3],
-                uuid_array[4], uuid_array[5], uuid_array[6], uuid_array[7],
-                uuid_array[8], uuid_array[9], uuid_array[10], uuid_array[11],
-                uuid_array[12], uuid_array[13], uuid_array[14], uuid_array[15]);
-      }
+        if (!e.uuid.empty() && arg_verbose)
+          // print out the UUID too
+          fprintf(outfile, "%s\n", formatuuid(e.uuid).c_str());
+      } else
+        // just print out the name
+        fprintf(outfile,"%s\n", e.groupname().c_str());
     }
   }
 }
@@ -2190,9 +2291,9 @@ void DB::emit(const char* regex, bool username, bool password) {
     const Entry& e = find1(regex);
 
     if (username)
-      ::emit(e.name, "username", e.default_login?e.the_default_login:e.login);
+      ::emit(e.groupname(), "username", e.default_login?e.the_default_login:e.login);
     if (password)
-      ::emit(e.name, "password", e.password);
+      ::emit(e.groupname(), "password", e.password);
 
     if (arg_details) {
       // print out the notes, prefixing each line with "> "
@@ -2216,19 +2317,31 @@ void DB::add(const char* name /* might be NULL */) {
   if (arg_verbose) printf("adding %s%sto %s\n", (name?name:""),(name?" ":""), dbname);
   if (open()) {
     Entry e;
-    if (name)
-      e.name = name;
+    if (name) {
+      if (version != VERSION_1_7) {
+        // if the argument contains a single '.' that isn't the first or last char, use that to split group and name
+        const char* dot = strchr(name,'.');
+        if (dot && dot != name && dot[1] != '\0' && strrchr(name,'.') == dot) {
+          e.name.assign(dot+1);
+          e.group.assign(name, dot-name);
+        } else
+          e.name = name;
+      } else
+        e.name = name;
+    }
 
     while (true) {
       if (e.name.empty())
         e.name = gettxt("name: ");
-
-      if (entries.find(e.name) != entries.end()) {
-        fprintf(stderr,"%s already exists\n", e.name.c_str());
+      if (version != VERSION_1_7 && e.group.empty())
+        e.group = gettxt("group [<none>]: ");
+ 
+      if (entries.find(e.groupname()) != entries.end()) {
+        fprintf(stderr,"%s already exists\n", e.groupname().c_str());
         if (name)
           throw FailEx();
-        else
-          e.name.erase();
+        e.name.erase();
+        e.group.erase();
       } else if (!e.name.empty())
         break;
     }
@@ -2241,7 +2354,7 @@ void DB::add(const char* name /* might be NULL */) {
  
     e.notes = gettxt("notes: ");
  
-    entries.insert(entries_t::value_type(e.name,e));
+    entries.insert(entries_t::value_type(e.groupname(),e));
     changed = true;
   } else
     throw FailEx();
@@ -2254,13 +2367,14 @@ void DB::edit(const char* regex) {
 
     while (true) {
       e.name = gettxt("name: ["+e_orig.name+"] ", e_orig.name);
-      if (e.name == e_orig.name || entries.find(e.name) == entries.end()) // e.name cannot be empty b/c if the user entered an empty string they got the old name
+      if (version != VERSION_1_7)
+        e.group = gettxt("group: ["+e_orig.group+"] ", e_orig.group);
+      if ((e.name == e_orig.name && e.group == e_orig.group) || 
+          entries.find(e.groupname()) == entries.end()) // e.name cannot be empty b/c if the user entered an empty string they got the old name
         break;
-      printf("%s already exists\n", e.name.c_str());
+      printf("%s already exists\n", e.groupname().c_str());
     }
 
-    if (version != VERSION_1_9)
-    e.group = gettxt("group: ["+e_orig.group+"] ", e_orig.group);
  
     if (e.default_login)
       e.default_login = getyn("keep default username ("+e_orig.the_default_login+") ? [y]", true);
@@ -2306,8 +2420,8 @@ void DB::edit(const char* regex) {
       }
       prompt += " ? [y]";
       if (getyn(prompt, true)) {
-        entries.erase(entries.find(e_orig.name));
-        entries.insert(entries_t::value_type(e.name,e));
+        entries.erase(entries.find(e_orig.groupname()));
+        entries.insert(entries_t::value_type(e.groupname(),e));
         changed = true;
       } else
         printf("Changes abandoned\n");
@@ -2448,8 +2562,8 @@ DB::Entry::Entry() : default_login(false) {
 }
 
 bool DB::Entry::operator!=(const Entry& e) const {
-  return group != e.group ||
-    uuid != e.uuid ||
+  return uuid != e.uuid ||
+    group != e.group ||
     name != e.name ||
     default_login != e.default_login ||
     (!default_login && !e.default_login && login != e.login) ||
@@ -2457,10 +2571,15 @@ bool DB::Entry::operator!=(const Entry& e) const {
     notes != e.notes;
 }
 
+secstring DB::Entry::groupname() const {
+  // prefix the name with the group, if it exists
+  return group.empty() ? name : group+'.'+name;
+}
+
 bool DB::Entry::read(FILE* f, DB::Context& c) {
   bool rc = true;
   Type type;
-  if (c.version == VERSION_2_0) {
+  if (c.version > VERSION_1_7) {
     int max_fields = 255;
     do {
       secstring s;
@@ -2475,7 +2594,7 @@ bool DB::Entry::read(FILE* f, DB::Context& c) {
           case PASSWORD: password=s; break;
           case END: break;
           default:
-            if (arg_verbose) printf("skipping field of type %u", static_cast<int>(type));
+            if (arg_verbose) printf("skipping field of type %u\n", static_cast<int>(type));
         }
       }
     } while (rc && type != END && --max_fields);
@@ -2484,7 +2603,7 @@ bool DB::Entry::read(FILE* f, DB::Context& c) {
       return false;
     }
   } else {
-    // read a version 1.9 entry
+    // read a version 1.7 entry
     secstring name_login;
     rc = read(f,c,type,name_login) &&
       read(f,c,type,password) && 
@@ -2518,14 +2637,14 @@ bool DB::Entry::read(FILE* f, DB::Context& c) {
   }
 
   if (arg_verbose > 2 && rc)
-    printf("Read in entry %s\n", name.c_str());
+    printf("read in entry %s\n", groupname().c_str());
 
   return rc;
 }
 
 bool DB::Entry::write(FILE* f, DB::Context& c) const {
   if (arg_verbose > 2)
-    printf("Writing entry %s\n", name.c_str());
+    printf("writing entry %s\n", name.c_str());
 
   // remove 'false' and create a entry named zzz to deliberate cause failure to write
   if (false && name == "zzz") {
@@ -2533,10 +2652,10 @@ bool DB::Entry::write(FILE* f, DB::Context& c) const {
     return false;
   }
 
-  if (c.version == VERSION_2_0) {
+  if (c.version != VERSION_1_7) {
     secstring save_uuid = uuid;
     if (uuid.empty()) {
-      // we must have read in a v1.9 file; create a uuid on the fly
+      // we must have read in a v1.7 file; create a uuid on the fly
       // NOTE: instead of creating a per-rfc UUID which includes hardware-identificators like your 1st NIC's MAC address, 
       // I make it completely random. I like this better, and given the size of the UUID collisions won't be a problem.
       unsigned char buf[16];
@@ -2559,7 +2678,7 @@ bool DB::Entry::write(FILE* f, DB::Context& c) const {
     // it doesnt look like anything depends on those spaces, but...
     secstring name_login;
     if (!group.empty())
-      name_login = group + "."; // passwordsafe 2.0 prepends the v2.0 group when writing a v1.9 file, so I do it too
+      name_login = group + "."; // passwordsafe 2.0 prepends the v2.0 group when writing a v1.7 file, so I do it too
     if (default_login) // this this first so that if the_default_login is "" we still get it right (so here I don't follow passwordsafe)
       name_login += name + DEFAULT_USER_CHAR;
     else if (login.empty())
@@ -2634,7 +2753,7 @@ bool DB::Entry::write(FILE* f, DB::Context& c, Type type, const secstring& str) 
 
   { // write the string's length
     Block block;
-    block.putInt32AndType(str.length(), (c.version == VERSION_2_0 ? type : 0));
+    block.putInt32AndType(str.length(), (c.version != VERSION_1_7 ? type : 0));
     block ^= c.cbc;
     BF_encrypt(block, &c.bf);
     c.cbc = block;

@@ -1,6 +1,5 @@
 
-add from --input file for bulk import, and --export or --append
-so you can merge and split db's. Maybe import/export to plaintext too.
+Add --importdb to verse a --exportdb
 
 Some way of entering multiline notes. Perhaps
 the ole 'single . on a line' termination that
