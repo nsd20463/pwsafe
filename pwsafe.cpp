@@ -97,7 +97,13 @@ extern "C" {
 #endif
 
 #include <curses.h>
-#else
+
+#ifdef erase
+// some imbecile C programers #define erase() in [n]curses.h, which breaks std::<container>::erase(...)
+#undef erase
+#endif
+
+#else // WITH_READLINE
 // our cheap substitute for readline
 static char* readline(const char*);
 #endif // WITH_READLINE
@@ -142,6 +148,16 @@ typedef struct option long_option;
 #ifndef HAVE_SOCKLEN_T
 typedef int socklen_t;
 #endif
+
+#ifndef HAVE_O_NOFOLLOW
+#define O_NOFOLLOW 0 // O_NOFOLLOW isn't supported on netbsd
+#endif
+
+#ifndef HAS_GETLINE
+static ssize_t getline(char**,size_t*,FILE*);
+#endif
+
+// ------ end of fixups for various systems; on to the real program ------
 
 
 // The name the program was run with, stripped of any leading path
@@ -3166,4 +3182,38 @@ static int getopt_long(int argc, char*const argv[], const char* short_opts, cons
 }
 #endif // HAS_GETOPT_LONG
 
+#ifndef HAS_GETLINE
+// a cheap substitute
+static ssize_t getline(char** bufp,size_t* buflenp,FILE* file) {
+  char* buf = *bufp;
+  size_t buflen = *buflenp;
+  ssize_t len = 0;
+
+  if (!buf) {
+    if (buflen == 0) buflen = 128;
+    buf = reinterpret_cast<char*>(malloc(buflen));
+    if (!buf) return -1;
+    *bufp = buf; 
+    *buflenp = buflen;
+  }
+
+  while (true) {
+    if (!fgets(buf+len, buflen-len, file))
+      break; // we've reached EOF
+    
+    len += strlen(buf+len);
+    if (buf[len-1] == '\n')
+      break; // we've reached a \n
+     
+    // we need a bigger buffer
+    buflen *= 2;
+    buf = reinterpret_cast<char*>(realloc(buf,buflen));
+    if (!buf) return -1;
+    *bufp = buf; 
+    *buflenp = buflen;
+  }
+
+  return len;
+}
+#endif // HAS_GETLINE
 
