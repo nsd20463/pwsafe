@@ -34,6 +34,7 @@
 
 #include <string>
 #include <map>
+#include <set>
 #include <vector>
 #include <algorithm>
 
@@ -252,13 +253,15 @@ public:
 };
 
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   try {
     program_name = strrchr(argv[0], '/');
     if (!program_name)
       program_name = argv[0];
     else
       program_name++;
+
+    rl_readline_name = program_name; // so readline() can parse its config files and handle if (pwsafe) sections
 
     // be nice and paranoid
     umask(0077);
@@ -888,6 +891,10 @@ static void emit(const secstring& name, const char*const what, const secstring& 
     }
 
     static const Atom CLIPBOARD = XA_CLIPBOARD(xdisplay); // optimize by fetching this one only once
+    
+    typedef std::set<Window> snarfers_t;
+    static snarfers_t snarfers; // the set of windows that come and get a copy of anything you advertise over X
+    static bool snarfers_inited = false;
 
     Atom xsel1 = 0, xsel2 = 0;
     int num_sel = 1;
@@ -913,7 +920,6 @@ static void emit(const secstring& name, const char*const what, const secstring& 
     }
 
     Time timestamp = 0;
-    Window prev_requestor = 0, prevprev_requestor = 0;
     while (xsel1 || xsel2) {
       XEvent xev;
       XNextEvent(xdisplay, &xev);
@@ -940,15 +946,19 @@ static void emit(const secstring& name, const char*const what, const secstring& 
 
           // let the user know
           if (arg_verbose>1) {
-            if (xsel1 && xsel2)
+            if (!snarfers_inited)
+              printf("X selection(s) owned to attract snarfers\n");
+            else if (xsel1 && xsel2)
               printf("X selections %s and %s contain %s for %s\n", stxt1, stxt2, what, name.c_str());
             else if (xsel1)
               printf("X selection %s contains %s for %s\n", stxt1, what, name.c_str());
           } else {
-            if (xsel1 && xsel2)
-              printf("You are ready to paste the %s for %s from %s and %s\n", what, name.c_str(), stxt1, stxt2);
-            else if (xsel1)
-              printf("You are ready to paste the %s for %s from %s\n", what, name.c_str(), stxt1);
+            if (snarfers_inited) {
+              if (xsel1 && xsel2)
+                printf("You are ready to paste the %s for %s from %s and %s\n", what, name.c_str(), stxt1, stxt2);
+              else if (xsel1)
+                printf("You are ready to paste the %s for %s from %s\n", what, name.c_str(), stxt1);
+            } // else please stand by as we wait for snarfers to make contact
           }
         }
       }
@@ -981,7 +991,13 @@ static void emit(const secstring& name, const char*const what, const secstring& 
           }
           else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
               xev.xselectionrequest.target == XA_STRING) {
-            if (/*arg_verbose &&*/ xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
+
+            const bool new_snarf = (!snarfers_inited && snarfers.find(xev.xselectionrequest.requestor) != snarfers.end());
+            if (new_snarf)
+              snarfers.insert(xev.xselectionrequest.requestor);
+            const bool snarf = (snarfers.find(xev.xselectionrequest.requestor) != snarfers.end());
+ 
+            if (!snarf || new_snarf) { // print out the fact that we are answering a selection request
               // be very verbose about who is asking for the selection---it could catch a clipboard sniffer
               const char*const selection = xev.xselectionrequest.selection == xsel1 ? stxt1 : stxt2; // we know xselectionrequest.selection is xsel1 or xsel2 already, so no need to be more paranoid
 
@@ -1022,14 +1038,21 @@ static void emit(const secstring& name, const char*const what, const secstring& 
               if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
                 host = reinterpret_cast<const char*>(cm.value);
  
-              printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
+              if (!snarf)
+                printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
+              else
+                if (arg_verbose)
+                  printf("Sending nothing to snarfer %s@%s via %s\n", requestor, host, selection);
 
               if (nm.value) XFree(nm.value);
               if (cm.value) XFree(cm.value);
             }
-            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
-            prevprev_requestor = prev_requestor;
-            prev_requestor = xev.xselectionrequest.requestor;
+
+            if (!snarf)
+              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
+            else
+              // snarferss just get an empty string
+              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(""), 0);
           }
           else {
             // a target I don't handle
