@@ -608,21 +608,33 @@ static const char* pwsafe_strerror(int err) {
   }
 }
 
-static char* dummy_completion(const char*, int) {
-  return NULL;
+#ifdef READLINE_H_NEEDS_EXTERN_C
+extern "C" {
+  static dummy_completion() // more hack job to keep compile warnings away
+#else
+static char* dummy_completion(const char*, int)
+#endif
+{
+  return 0;
 }
+#ifdef READLINE_H_NEEDS_EXTERN_C
+} // extern "C"
+#endif
+
 
 // get a password from the user
 static secstring getpw(const std::string& prompt) {
   // turn off echo
   struct termios tio;
   tcgetattr(STDIN_FILENO, &tio);
-  tio.c_lflag &= ~(ECHO);
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &tio); // FLUSH so they don't get into the habit of typing ahead their passphrase
+  {
+    struct termios new_tio = tio;
+    new_tio.c_lflag &= ~(ECHO);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_tio); // FLUSH so they don't get into the habit of typing ahead their passphrase
+  }
   rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
   char* x = readline(prompt.c_str());
   // restore echo
-  tio.c_lflag |= (ECHO);
   tcsetattr(STDIN_FILENO, TCSANOW, &tio);
   // echo a linefeed since the user's <Enter> was not echoed
   printf("\n");
@@ -658,9 +670,14 @@ static secstring gettxt(const std::string& prompt, const secstring& default_="")
 static char get1char(const std::string& prompt, int def_val) {
   struct termios tio;
   tcgetattr(STDIN_FILENO, &tio);
-  tio.c_lflag &= ~(ICANON);
-  tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-  tio.c_lflag |= (ICANON); // get ready to turn ICANON back on
+  {
+    termios new_tio = tio;
+    new_tio.c_lflag &= ~(ICANON);
+    // now that we turn ICANON off we *must* set VMIN=1 or on sparc the read() buffers 4 at a time
+    new_tio.c_cc[VMIN] = 1;
+    new_tio.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
+  }
 
   while (true) {
     printf("%s",prompt.c_str());
