@@ -43,6 +43,9 @@ It is compatible with Counterpane Passwordsafe 1.9.x databases.
 .B  \-\-createdb
 Create a new database.
 .TP 
+.B  \-\-exportdb
+Export database as text.
+.TP 
 .B  \-\-passwd
 Change the database's passphrase.
 .TP 
@@ -91,6 +94,9 @@ Override $DISPLAY. Implies \-\-xclip.
 .TP 
 .B  \-s, \-\-selection={Primary,Secondary,Clipboard,Both}
 Select the X selection effected. Default is Both primary and clipboard. Implies \-\-xclip.
+.TP 
+.B  \-G, \-\-ignore=NAME@HOST
+Add NAME to windows or hosts that do not receive the selection. If just NAME is given it matches any host, and if just @HOST is given it matches any name.
 .TP 
 .B  \-v, \-\-verbose
 Print more information.
