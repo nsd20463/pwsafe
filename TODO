@@ -13,10 +13,4 @@ don't read entire db into RAM---just decrypt the name and the string lengths.
 
 pwsafe-agent mode (like ssh-agent)? with encrypted string like win32 passwordsafe?
 
-avoid passing data to klipper & friends by doing a test X selection first and
-seeing who grabs it. trick seems that klipper changed behavior. in kde 3.0
-(redhat 8.0) it polls the primary selection. In kde 3.3 it takes from clipboard
-rather like xclipboard does. Gnome must also have some sort of clipboard
-daemon, but testing would mean running gnome, which I'm not too excited about
-doing.
 
