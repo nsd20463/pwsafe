@@ -66,9 +66,42 @@ dnl Checks for libraries.
 dnl AM_WITH_REGEX
 AC_CHECK_LIB(crypto, SHA1_Init, [], [AC_MSG_ERROR(openssl (libssl) is required)])
 if test "$with_readline" != no; then
-AC_CHECK_LIB(ncurses, initscr, [], [AC_MSG_ERROR(libncurses (required by readline) can't be found)])
+dnl readline usually needs libncurses, but on some systems (like netbsd) libcurses will do. so pick one and use it
+AC_CHECK_LIB(ncurses, initscr,,)
+AC_CHECK_LIB(curses, initscr,,)
+AC_MSG_CHECKING([if libreadline needs libncurses])
+AC_LINK_IFELSE(
+  [AC_LANG_PROGRAM(
+    [[
+#include <stdio.h>
+#include <readline/readline.h>
+    ]],[[
+  char*x=readline("test"); 
+  return (x?0:1);
+    ]]
+  )],
+  [AC_MSG_RESULT(no)
+    dnl maybe it needs libcurses
+    AC_LINK_IFELSE(
+      [AC_LANG_PROGRAM(
+        [[
+#include <stdio.h>
+#include <readline/readline.h>
+        ]],[[
+      char*x=readline("test");
+      return (x?0:1);
+        ]]
+      )],
+      [AC_MSG_RESULT(no)],
+      [CPPFLAGS="$CPPFLAGS -lcurses"
+       AC_MSG_RESULT(yes)])],
+  [CPPFLAGS="$CPPFLAGS -lncurses"
+   AC_MSG_RESULT(yes)])
+
+
 AC_CHECK_LIB(readline, readline, [], [AC_MSG_ERROR(libreadline can't be found)])
 fi
+
 dnl check for the X libraries
 if test "$have_x" = yes; then
   CPPFLAGS="$CPPFLAGS $X_CFLAGS $X_LIBS"
@@ -82,7 +115,7 @@ AC_CHECK_HEADERS(unistd.h sys/param.h sys/time.h time.h sys/types.h sys/mkdev.h 
 AC_CHECK_HEADERS(stdint.h errno.h termios.h getopt.h)
 AC_CHECK_HEADERS(openssl/sha.h openssl/blowfish.h openssl/rand.h, [], [AC_MSG_ERROR(openssl headers (libssl-dev) are required)])
 if test "$with_readline" != no; then
-AC_CHECK_HEADERS(curses.h, [], [AC_MSG_ERROR(curses.h (libncurses-dev) is required by readline)])
+AC_CHECK_HEADERS(curses.h, [], [AC_MSG_ERROR(curses.h (lib[n]curses-dev) is required by readline)])
 AC_CHECK_HEADERS(readline/readline.h, [], [AC_MSG_ERROR(readline/readline.h (libreadline-dev) can't be found)])
 fi
 AC_CHECK_HEADERS(netinet/in.h, [], [AC_MSG_ERROR(netinet/in.h is required)])
