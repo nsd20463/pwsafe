@@ -2,9 +2,15 @@
 Add a --edit feature to edit an existing entry
 (change stuff)
 
+--add from --input file for bulk import
+
+Some way of entering multiline nodes. Perhaps
+the ole 'single . on a line' termination that
+mail & smtp use?
+
 Add automatic random username and password generation
 
-Add menu based interactio (--add already does it)
+Add menu based interaction (--add already does it)
 
 curses based interface?
 
@@ -15,4 +21,6 @@ don't read entire db into RAM---just decrypt the name and the string lengths.
 
 pwsafe-agent mode? (ala ssh-agent)
 
+avoid passing data to klipper & friends by doing a test X selection first and
+seeing who grabs it.
 
