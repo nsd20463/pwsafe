@@ -58,11 +58,11 @@ case $1 in
     TGZ=pwsafe-$VER.tar.gz
     DIR=pwsafe-$VER
     rm -rf ../$DIR
-    { cd ..; cvs -d `cat pwsafe/CVS/Root` export -d $DIR -D tomorrow pwsafe; }
-    { cd ../$DIR; ./nsd prep; }
+    ( cd ..; cvs -d `cat pwsafe/CVS/Root` export -d $DIR -D tomorrow pwsafe; )
+    ( cd ../$DIR; ./nsd prep; )
     tar czvf ../$TGZ -C ../ $DIR
     # and make the archival copy
-    { cd ../$DIR; ./configure --program-suffix=$VER; make; strip pwsafe; } 
+    ( cd ../$DIR; ./configure --program-suffix=$VER; make; strip pwsafe; )
     ;;
   *)
     echo "Usage $0 (configure|prep|compile|recompile|release)"
