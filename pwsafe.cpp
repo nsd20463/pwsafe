@@ -41,17 +41,30 @@
 #if HAVE_GETOPT_H // freebsd for example doesn't have getopt.h but includes getopt() inside unistd.h
 #include <getopt.h>
 #endif
+#if HAVE_SYS_TYPES_H
 #include <sys/types.h>
+#endif
 #if HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 #include <errno.h>
 #include <pwd.h>
 #include <regex.h>
+#if HAVE_SYS_MMAN_H
 #include <sys/mman.h>
+#endif
 #include <limits.h>
 #if HAVE_SYS_SELECT_H
 #include <sys/select.h>
+#endif
+#if HAVE_SYS_RESOURCE_H
+#include <sys/resource.h>
+#endif
+#if HAVE_SYS_SOCKET_H
+#include <sys/socket.h>
+#endif
+#if HAVE_SYS_UN_H
+#include <sys/un.h>
 #endif
 
 
@@ -129,7 +142,7 @@ gid_t saved_gid;
 // Option flags and variables
 const char* arg_dbname = NULL;
 const char* arg_name = NULL;
-enum OP { OP_NOP, OP_CREATEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE };
+enum OP { OP_NOP, OP_CREATEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_AGENT };
 OP arg_op = OP_NOP;
 bool arg_casesensative = false;
 bool arg_echo = false;
@@ -139,6 +152,7 @@ bool arg_username = false;
 bool arg_password = false;
 bool arg_details = false;
 int arg_verbose = 0;
+int arg_debug = 0;
 #ifndef X_DISPLAY_MISSING
 bool arg_xclip = false;
 const char* arg_display = NULL;
@@ -155,6 +169,7 @@ static long_option const long_options[] =
   {"add", no_argument, 0, 'a'},
   {"edit", no_argument, 0, 'e'},
   {"delete", no_argument, 0, 'D'},
+  {"agent", no_argument, 0, 'A'},
   // options
   {"file", required_argument, 0, 'f'},
   {"case", no_argument, 0 ,'I'},
@@ -231,6 +246,8 @@ static void usage(bool fail);
 static int parse(int argc, char **argv);
 static const char* pwsafe_strerror(int err); // decodes errno's as well as our negative error codes
 #define PWSAFE_ERR_INVALID_DB -1
+
+static void agent(const int sock, const std::string&, const std::string&);
 
 static char get1char(const char* prompt, int def_val=-1);
 static bool getyn(const char* prompt, int def_val=-1);
@@ -410,6 +427,11 @@ int main(int argc, char **argv) {
         else
 #endif
           arg_echo = true;
+  
+        // if $0 mentions the word agent then we are automatically in agent mode
+        // (so you can ln pwsafe pwsafe-agent)
+        if (strstr(program_name, "-agent"))
+          arg_op = OP_AGENT;
       }
 
       int idx = parse(argc, argv);
@@ -477,7 +499,7 @@ int main(int argc, char **argv) {
         throw FailEx();
       }
       // from this point on stdout points to something we can interact with the user on, and outfile points to where we should put our output
-      
+ 
 
       // seed the random number generator
       char rng_filename[1024];
@@ -558,6 +580,83 @@ int main(int argc, char **argv) {
           }
         }
         break;
+      case OP_AGENT:
+        { // fork off and become pwsafe passphrase agent
+          const char* tmp = getenv("TMP");
+          if (!tmp) tmp = getenv("TEMP");
+          if (!tmp) tmp = "/tmp";
+          std::string sockpath = tmp;
+          sockpath += "/pwsafe-";
+          sockpath += DB::Entry::the_default_login.c_str();
+
+          { // create the directory sockpath if it doesn't exist; check its mode if it does
+            if (mkdir(sockpath.c_str(), 0700)) {
+              if (errno != EEXIST) {
+                fprintf(stderr, "Can't create %s: %s\n", sockpath.c_str(), strerror(errno));
+                throw FailEx();
+              }
+              // else check it
+            }
+            struct stat s;
+            if (lstat(sockpath.c_str(), &s) ||
+                !S_ISDIR(s.st_mode) ||
+                (s.st_mode & (0777) != 0700) ||
+                s.st_uid != getuid() ||
+                s.st_gid != getgid()) {
+              fprintf(stderr, "%s is suspicious. Delete it and try again\n", sockpath.c_str());
+              throw FailEx();
+            }
+          }
+
+          int sock = socket(PF_UNIX, SOCK_STREAM, 0);
+          if (sock < 0) {
+            fprintf(stderr, "Can't open socket: %s\n", strerror(errno));
+            throw FailEx();
+          }
+
+          std::string sockname = sockpath;
+          sockname += "/agent.";
+          char buf[16];
+          snprintf(buf, sizeof(buf), "%d", getppid());
+          sockname += buf;
+
+          sockaddr_un sun;
+          memset(&sun,0,sizeof(sun));
+          sun.sun_family = AF_UNIX;
+          strncpy(sun.sun_path, sockname.c_str(), sizeof(sun.sun_path));
+          if (bind(sock, (struct sockaddr*)&sun, sizeof(sun))) {
+            fprintf(stderr, "Can't bind socket to %s: %s\n", sockname.c_str(), strerror(errno));
+            close(sock);
+            throw FailEx();
+          }
+          if (listen(sock, 10)) {
+            fprintf(stderr, "Can't listen on socket %s: %s\n", sockname.c_str(), strerror(errno));
+            close(sock);
+            throw FailEx();
+          }
+
+          pid_t pid;
+          if (arg_debug)
+            // don't fork if we're debugging
+            pid = getpid();
+          else
+            pid_t pid = fork();
+          if (pid) {
+            if (arg_csh)
+              printf("setenv PWSAFE_AUTH_SOCK %s;\n"
+                     "setenv PWSAFE_AGENT_PID %d;\n"
+                     "echo Agent pid %d\n", sockname.c_str(), pid, pid);
+            else
+              printf("PWSAFE_AUTH_SOCK=%s; export PWSAFE_AUTH_SOCK;\n"
+                     "PWSAFE_AGENT_PID=%d; export PWSAFE_AGENT_PID;\n"
+                     "echo Agent pid %d\n", sockname.c_str(), pid, pid);
+          }
+          if (arg_debug || !pid) 
+            agent(sock, sockname, sockpath);
+          // else we are done
+          close(sock);
+        }
+        break;
       }
 
       // first try and close outfile with error checking
@@ -615,6 +714,7 @@ static int parse(int argc, char **argv) {
           "s:"  // x selection
 #endif
           "v"   // verbose
+          "g"   // debug
           "h"   // help
           "V",	// version
           long_options, (int *) 0)) != EOF)
@@ -653,6 +753,12 @@ static int parse(int argc, char **argv) {
       case 'D':
         if (arg_op == OP_NOP)
           arg_op = OP_DELETE;
+        else
+          usage(true);
+        break;
+      case 'A':
+        if (arg_op == OP_NOP)
+          arg_op = OP_AGENT;
         else
           usage(true);
         break;
@@ -698,6 +804,9 @@ static int parse(int argc, char **argv) {
 #endif
       case 'v':
         arg_verbose++;
+        break;
+      case 'g': // think gcc -g (since -d is taken)
+        arg_debug++;
         break;
       case 'V':
         printf("pwsafe %s\n", VERSION);
@@ -748,6 +857,7 @@ static void usage(bool fail) {
         "  -a, --add [NAME]           add an entry\n"
         "  -e, --edit REGEX           edit an entry\n"
         "  --delete NAME              delete an entry\n"
+        "  --agent                    be pwsafe passphrase agent\n"
       );
   if (fail)
     throw FailEx();
@@ -2300,6 +2410,84 @@ void* secalloc::reallocate(void* p, size_t old_n, size_t new_n) {
   return new_p;
 }
 
+// ----- agent mode -------------------------------------------------------------------
+
+static bool agent_exit = false;
+static void cleanup_agent(int) {
+  agent_exit = true;
+}
+
+static void agent(const int sock, const std::string& sockname, const std::string& sockdir) {
+  if (outfile) {
+    fclose(outfile);
+    outfile = NULL;
+  }
+  setsid();
+  chdir("/");
+  {
+    const int devnull = open("/dev/null", O_RDWR, 0);
+    dup2(devnull, STDIN_FILENO);
+    dup2(devnull, STDOUT_FILENO);
+    dup2(devnull, STDERR_FILENO);
+    close(devnull);
+  }
+  
+#ifdef HAVE_SETRLIMIT
+  if (!arg_debug) {
+    // turn off core dumps
+    struct rlimit r;
+    r.rlim_cur = r.rlim_max = 0;
+    setrlimit(RLIMIT_CORE, &r);
+  }
+#endif
+ 
+  signal(SIGPIPE, SIG_IGN); // clients will be hanging up on us abruptly when they crash or ctrl-c; don't worry
+  signal(SIGHUP, cleanup_agent);
+  signal(SIGTERM, cleanup_agent);
+
+  while (!agent_exit) {
+    sockaddr sa;
+    sockaddr_un& un = sa;
+    socklen_t slen = sizeof(sa);
+    const int s = accept(sock, &sa, &slen);
+    if (s >= 0) {
+      if (sa.sa_family == AF_UNIX) {
+        ucred c;
+        socklen_t clen = sizeof(c);
+        if (!getsockopt(s, SOL_SOCKET, SO_PEERCRED, &c, &clen) &&
+            clen == sizeof(c) &&
+            c.uid == getuid() &&
+            c.gid == getgid()) {
+          // check that process is same file as us (that it is the same pwsafe executable)a
+          // maybe there is an easy way to test the device/inode number, but I don't see it,
+          // so for now I test the filename strings
+          char exe[1024];
+          snprintf(exe,sizeof(exe),"/proc/%d/exe",c.pid);
+          char bin[1024];
+          if (readlink(exe, buf, sizeof(buf)) > 0) {
+            snprintf(exe,sizeof(exe),"/proc/%d/exe",getpid());
+            char us[1024];
+            if (readlink(exe, us, sizeof(us)) > 0) {
+              if (strcmp(bin, us) == 0) {
+                // ok, we like this client
+                
+                  
+              }
+            }
+          }
+        }
+      }
+      close(s);
+    } else if (errno != EINTR)
+      break;
+  }
+
+  unlink(sockname.c_str());
+  close(sock);
+  // and if the dir is empty rmdir succeeds, and if it isn't it doesn't and that's ok
+  rmdir(sockdir.c_str());
+  throw ExitEx(0);
+}
 
 // ----- cheap readline() substitute for without-readline builds ----------------------
 
@@ -2351,6 +2539,8 @@ static char* readline(const char* prompt) {
   }
 }
 #endif // WITH_READLINE
+
+// --- cheap getopt_long() substitute ----------------------------------------------------------
 
 #ifndef HAS_GETOPT_LONG
 // a cheap substitute for getopt_long() that doesn't support optional arguments, nor does it reorder argv[] to put non-options last
