@@ -25,14 +25,15 @@ case $1 in
     rm /tmp/$TGZ
 
     # some hosts need custom stuff passed in to ./configure
-    ppc_osx1_conf="--without-readline"
+    ppc_osx1_conf="--without-readline --with-openssl-dir=/sw"
+    ppc_osx2_conf="--without-readline"
     sparc_solaris1_conf="--without-readline"
     x86_freebsd1_make=gmake
-    x86_netbsd1_conf="--without-readline"
+    x86_netbsd1_conf="--without-readline --without-x"
     x86_netbsd1_make=gmake
     x86_openbsd1_make=gmake
  
-    for host in alpha-linux1 amd64-linux1 ppc-osx1 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1 x86-openbsd1; do
+    for host in alpha-linux1 amd64-linux1 ppc-osx1 ppc-osx2 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1 x86-openbsd1; do
       RSH="ssh -l`echo $USER|tr -d -` cf-shell.sourceforge.net ssh $host"
       DIR=$host
       CONF="`echo $host|tr -- - _`_conf"
