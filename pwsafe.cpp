@@ -1107,6 +1107,8 @@ static void emit(const secstring& name, const char*const what, const secstring& 
       // now that we turn ICANON off we *must* set VMIN=1 or on sparc the read() buffers 4 at a time
       new_tio.c_cc[VMIN] = 1;
       new_tio.c_cc[VTIME] = 0;
+      // turn off echo too; no need to show them the char they pressed
+      new_tio.c_lflag &= ~(ECHO);
       tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
     }
 
