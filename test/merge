@@ -5,9 +5,98 @@ if [ -z "$srcdir" ]; then
 fi
 
 pwsafe=$srcdir/pwsafe
-file=/tmp/create_test.dat$$
-err=/tmp/create_test.err$$
-pw=abcdefg
+file=/tmp/merge_test.dat$$
+err=/tmp/merge_test.err$$
+pw=abc
+
+# create a db, and merge test.dat into it
+[ ! -e $file ] || rm $file
+if [ -e $file ]; then
+  echo "Can't clean up $file. Please delete it yourself and then rerun this test"
+  exit 1
+fi
+
+echo -n "creating a new db $file: "
+$pwsafe 2>$err 1>&2 --createdb -f $file << EOF
+$pw
+$pw
+EOF
+if [ $? -ne 0 ]; then
+  echo "FAILED!"
+  echo "Unable to create $file"
+  exit 1
+else
+  echo OK
+fi
+
+echo -n "merging testv2.dat into $file: "
+out=`$pwsafe 2>$err --mergedb $srcdir/testv2.dat -f $file <<EOF
+$pw
+EOF
+`
+if [ $? -ne 0 ] || ! (echo "$out" | grep >/dev/null "Merged 1 entries; skipped 0; 0 duplicates." ); then
+  echo "FAILED!"
+  echo "Unable to merge testv2.dat into $file"
+  echo "Here is the output:"
+  echo "$out"
+  cat $err
+  exit 1
+else
+  echo OK
+fi
+
+
+echo -n "re-merging testv2.dat into $file another time: "
+out=`$pwsafe 2>$err --mergedb $srcdir/testv2.dat -f $file <<EOF
+$pw
+EOF
+`
+if [ $? -ne 0 ] || ! (echo "$out" | grep >/dev/null "Merged 0 entries; skipped 0; 1 duplicates." ); then
+  echo "FAILED!"
+  echo "Unable to re-merge testv2.dat into $file"
+  echo "Here is the output:"
+  echo "$out"
+  cat $err
+  exit 1
+else
+  echo OK
+fi
+
+echo -n "merging test.dat into $file: "
+out=`$pwsafe 2>$err --mergedb $srcdir/test.dat -f $file <<EOF
+$pw
+n
+EOF
+`
+if [ $? -ne 0 ] || ! (echo "$out" | grep >/dev/null "Merged 0 entries; skipped 1; 0 duplicates." ); then
+  echo "FAILED!"
+  echo "Unable to merge test.dat into $file"
+  echo "Here is the output:"
+  echo "$out"
+  cat $err
+  exit 1
+else
+  echo OK
+fi
+
+
+echo -n "merging $file with itself: "
+out=`$pwsafe 2>$err --mergedb $file -f $file <<EOF
+$pw
+y
+EOF
+`
+if [ $? -ne 0 ] || ! (echo "$out" | grep >/dev/null "Merged 0 entries; skipped 0; 1 duplicates." ); then
+  echo "FAILED!"
+  echo "Unable to merge $file with itself"
+  echo "Here is the output:"
+  echo "$out"
+  cat $err
+  exit 1
+else
+  echo OK
+fi
+
 
 # cleanup after ourselves
 rm $file $file~ $err

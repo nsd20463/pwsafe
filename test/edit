@@ -33,7 +33,7 @@ out=`$pwsafe 2>$err --delete does_not_exist -f $file <<EOF
 $pw
 EOF
 `
-if [ $? -ne 1 ] || ! (echo "$out" | grep '^does_not_exist not found$' >/dev/null ) ! ( echo "$out" | grep "$file unchanged\$" >/dev/null ) ; then
+if [ $? -ne 1 ] || ! (cat $err | grep 'does_not_exist not found$' >/dev/null ) || ! ( cat $err | grep "$file unchanged\$" >/dev/null ) ; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is not properly failing to remove a non-existant entry from $file (passphrase: $pw)."
   echo "Here is the output:"
@@ -48,9 +48,16 @@ fi
 echo -n "testing editing 'testing' entry in $file: "
 out=`$pwsafe 2>$err --edit testing -f $file <<EOF
 abc
+new_name
+new_group
+new_username
+y
+yy
+
+y
 EOF
 `
-if [ $? -ne 0 -o "$out" != "" ]; then
+if [ $? -ne 0 ]; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is not correctly editing testing entry in $file (passphrase: $pw)."
   echo "Here is the output:"
@@ -63,13 +70,13 @@ fi
 
 # remove an existing entry
 echo -n "testing removing 'testing' entry from $file: "
-out=`$pwsafe 2>$err --delete testing -f $file <<EOF
+out=`$pwsafe 2>$err --delete new_group.new_name -f $file <<EOF
 $pw
 EOF
 `
 if [ $? -ne 0 ]; then
   echo "FAILED!"
-  echo "pwsafe is NOT WORKING PROPERLY. It is not removing testing entry from $file (passphrase: $pw)."
+  echo "pwsafe is NOT WORKING PROPERLY. It is not removing 'new_group.new_name' entry from $file (passphrase: $pw)."
   echo "Here is the output:"
   echo "$out"
   cat $err
