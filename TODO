@@ -1,5 +1,5 @@
 
-Add --importdb to verse a --exportdb
+Add --importdb to reverse an --exportdb
 
 Some way of entering multiline notes. Perhaps
 the ole 'single . on a line' termination that
@@ -11,5 +11,5 @@ don't read entire db into RAM---just decrypt the name and the string lengths.
 --add can be done w/o decrypting any strings!
 
 pwsafe-agent mode (like ssh-agent)? with encrypted string like win32 passwordsafe?
-
+or will interactive mode be enough?
 
