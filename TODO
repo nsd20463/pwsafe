@@ -1,16 +1,9 @@
 
-Add a --edit feature to edit an existing entry
-(change stuff)
-
 --add from --input file for bulk import
 
 Some way of entering multiline nodes. Perhaps
 the ole 'single . on a line' termination that
 mail & smtp use?
-
-Add automatic random username and password generation
-
-Add menu based interaction (--add already does it)
 
 curses based interface?
 
@@ -23,4 +16,6 @@ pwsafe-agent mode? (ala ssh-agent)
 
 avoid passing data to klipper & friends by doing a test X selection first and
 seeing who grabs it.
+
+seed RNG from ~/.rnd and/or somesuch
 
