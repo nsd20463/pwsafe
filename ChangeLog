@@ -3,6 +3,8 @@
         * pwsafe: implemented secstring and secalloc(ator)
           classes using mlock (like gpg does). You need
           to be suid root for it to work, though.
+        * pwsafe: random number generator is seeded from
+          ~/.rnd.
         * pwsafe: release 0.1.3
 
 2004-01-26  Nicolas S. Dade  <ndade@nsd.dyndns.org>
