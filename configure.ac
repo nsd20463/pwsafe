@@ -23,13 +23,16 @@ if test -n "$with_openssl_dir" && test "$with_openssl_dir" != yes; then
 fi
 
 dnl --with-readline or without
-AC_ARG_WITH(readline, 
-            AC_HELP_STRING([--with-readline], [use readline for read input (default=yes)]),,with_readline=yes)
+AC_ARG_WITH(readline, AC_HELP_STRING([--with-readline], [use readline for read input (default=yes)]),,with_readline=yes)
 AC_MSG_RESULT($with_readline)
-
 if test "$with_readline" != no; then
   AC_DEFINE(WITH_READLINE, 1, [Define to 1 to enable use of gnu libreadline for input])
 fi
+
+dnl --with-getopt_long or without
+dnl note: there is also a test to see if getopt_long exists. both it and this have to be true for it to be use
+AC_ARG_WITH(getopt_long, AC_HELP_STRING([--with-getopt_long], [use getopt_long to parse arguments (default=yes if available)]),,with_getopt_long=yes)
+AC_MSG_RESULT($with_getopt_long)
 
 dnl --enable-debug
 AC_ARG_ENABLE(debug, AC_HELP_STRING([--enable-debug], [compile in debug support (default=no)]),,)
@@ -95,8 +98,10 @@ AM_SYS_POSIX_TERMIOS
 if test "$am_cv_sys_posix_termios" != yes; then
   AC_MSG_ERROR("POSIX termios operations are required")
 fi
-AC_CHECK_FUNC(getopt_long, [], [AC_MSG_ERROR(getopt_long() is needed)])
-dnl AC_CHECK_FUNC(tcsetattr, [], [AC_MSG_ERROR(tcsetattr() is needed)])
+if test "$with_getopt_long" != no; then
+ AC_CHECK_FUNC(getopt_long, [AC_DEFINE(HAS_GETOPT_LONG, 1, [Define to 1 if getopt_long is supported])], [])
+fi
+AC_CHECK_FUNC(tcsetattr, [], [AC_MSG_ERROR(tcsetattr() is needed)])
 if test "$with_readline" != no; then
 AC_CHECK_FUNC(readline, [], [AC_MSG_ERROR(readline() is needed)])
 fi

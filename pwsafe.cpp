@@ -75,6 +75,29 @@ extern "C" {
 static char* readline(const char*);
 #endif // WITH_READLINE
 
+#ifndef HAS_GETOPT_LONG
+// our cheap substitute for getopt_long
+// for testing we might have included a getopt.h that did include getopt_long, so
+#ifdef no_argument
+#undef no_argument
+#undef required_argument
+#undef optional_argument
+#endif
+struct long_option {
+  const char* name;
+  int has_arg;
+  int* flag;
+  int val;
+};
+static const int no_argument = 0;
+static const int required_argument = 1;
+// we don't support optional_argument in our cheap getopt_long
+static int getopt_long(int, char*const[], const char*, const long_option*, int*);
+#else
+typedef struct option long_option;
+#endif
+
+
 #include <netinet/in.h> // for ntohl() to figure out the endianess
 
 #include <openssl/sha.h>
@@ -115,7 +138,7 @@ const char* arg_selection = "both"; // by default copy to primary X selection an
 static Display* xdisplay = NULL;
 #endif
 
-static struct option const long_options[] =
+static struct long_option const long_options[] =
 {
   // commands
   {"createdb", no_argument, 0, 'C'},
@@ -675,6 +698,7 @@ static int parse(int argc, char **argv) {
         usage(false);
         throw ExitEx(0);
       case ':':
+      case '?':
         // the message getopt() printed out is good enough
         throw FailEx();
       default:
@@ -1780,7 +1804,8 @@ void DB::add(const char* name /* might be NULL */) {
  
     entries.insert(entries_t::value_type(e.name,e));
     changed = true;
-  }
+  } else
+    throw FailEx();
 } 
 
 void DB::edit(const char* regex) {
@@ -2281,9 +2306,45 @@ static char* readline(const char* prompt) {
     }
   }
 }
-      
 #endif // WITH_READLINE
 
+#ifndef HAS_GETOPT_LONG
+// a cheap substitute for getopt_long() that doesn't support optional arguments, nor does it reorder argv[] to put non-options last
+static int getopt_long(int argc, char*const argv[], const char* short_opts, const long_option* lopts, int* flag) {
+  if (optind >= argc)
+    // nothing left at all
+    return -1;
+  
+  const char*const p = argv[optind];
+  if (p[0] != '-' || p[1] != '-')
+    // not a long option. since we don't reorder argv[] we just get getopt() have a crack at it
+    return getopt(argc, argv, short_opts);
+
+  while (lopts && lopts->name) {
+    if (strcmp(lopts->name, p+2) == 0) {
+      // we have a match
+      optind++;
+      if (lopts->has_arg == required_argument) {
+        if (optind >= argc) {
+          fprintf(stderr, "option `%s' requires an argument\n", p);
+          return ':';
+        }
+        optarg = argv[optind++];
+      }
+
+      if (lopts->flag) {
+        *lopts->flag = lopts->val;
+        return 0;
+      }
+      else
+        return lopts->val;
+    } else
+      lopts++;
+  }
+  // not an option that matches
+  fprintf(stderr, "unrecognized option `%s'\n", p);
+  return '?';
+}
+#endif // HAS_GETOPT_LONG
 
 
- 
