@@ -149,10 +149,6 @@ typedef struct option long_option;
 typedef int socklen_t;
 #endif
 
-#ifndef HAVE_O_NOFOLLOW
-#define O_NOFOLLOW 0 // O_NOFOLLOW isn't supported on netbsd
-#endif
-
 #ifndef HAS_GETLINE
 static ssize_t getline(char**,size_t*,FILE*);
 #endif
@@ -165,13 +161,6 @@ const char *program_name = "pwsafe"; // make sure program_name always points to 
 uid_t saved_uid;
 gid_t saved_gid;
 
-// the name of the environment variables used for the agent
-#define PWSAFE_AUTH_SOCK "PWSAFE_AUTH_SOCK"
-#define PWSAFE_AGENT_PID "PWSAFE_AGENT_PID"
-pid_t agent_pid = 0;
-int agent_sock = -1;
-FILE* agent_fsock = NULL;
-
 // database version
 enum Version { VERSION_UNKNOWN, VERSION_1_7, VERSION_2_0 };
 const static char*const VERSION_NAME[] = { "<unknown>", "1.7", "2.0" };
@@ -181,7 +170,7 @@ const char* arg_dbname = NULL;
 Version arg_dbversion = VERSION_UNKNOWN;
 const char* arg_mergedb = NULL;
 const char* arg_name = NULL;
-enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_MERGEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_AGENT };
+enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_MERGEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE };
 OP arg_op = OP_NOP;
 //const char* arg_config = NULL;
 bool arg_casesensative = false;
@@ -193,13 +182,12 @@ bool arg_password = false;
 bool arg_details = false;
 int arg_verbose = 0;
 int arg_debug = 0;
-bool arg_csh = false;
-bool arg_kill = false;
 #ifndef X_DISPLAY_MISSING
 bool arg_xclip = false;
 const char* arg_display = NULL;
 const char* arg_selection = "both"; // by default copy to primary X selection and clipboard
-std::set<std::string> arg_ignore;
+typedef std::set<std::string> arg_ignore_t;
+arg_ignore_t arg_ignore;
 static Display* xdisplay = NULL;
 #endif
 
@@ -214,7 +202,6 @@ static long_option const long_options[] =
   {"add", no_argument, 0, 'a'},
   {"edit", no_argument, 0, 'e'},
   {"delete", no_argument, 0, 'D'},
-  {"agent", no_argument, 0, 'A'},
   // options
 //  {"config", required_argument, 0, 'F'},
   {"file", required_argument, 0, 'f'},
@@ -233,9 +220,6 @@ static long_option const long_options[] =
   {"selection", required_argument, 0,'s'},
   {"ignore", required_argument, 0,'G'},
 #endif
-  // options for agent
-  {"csh", no_argument, 0,'C'&31}, // ctrl-c
-  {"kill", no_argument, 0,'k'},
   // standard stuff
   {"verbose", no_argument, 0, 'v'},
   {"help", no_argument, 0, 'h'},
@@ -297,9 +281,6 @@ static void usage(bool fail);
 static int parse(int argc, char **argv);
 static const char* pwsafe_strerror(int err); // decodes errno's as well as our negative error codes
 #define PWSAFE_ERR_INVALID_DB -1
-
-static void agent(const int sock, const std::string&, const std::string&);
-static int tell_agent(const char* cmd); // returns response code (ie 200)
 
 static char get1char(const char* prompt, int def_val=-1);
 static bool getyn(const char* prompt, int def_val=-1);
@@ -464,6 +445,256 @@ public:
 };
 
 
+void interactive(DB& db) {
+  char* cmdline = NULL;
+  size_t cmdline_buflen = 0;
+  
+  while (true) {
+    ssize_t cmdlen = getline(&cmdline, &cmdline_buflen, stdin);
+    if (cmdlen == -1)
+      throw ExitEx(1);
+
+    // break cmdline into argc/argv
+    int argc = 1;
+    int argv_len = 1;
+    char** argv = reinterpret_cast<char**>(malloc(sizeof(argv[0])*argv_len));
+    if (!argv) {
+      free(cmdline);
+      throw ExitEx(1);
+    }
+    argv[0] = "pwsafe";
+    {
+      char* p = cmdline;
+      while (p-cmdline < cmdlen && *p != '\0' && *p != '\n') {
+        // advance to the next non-blank char
+        while (p-cmdline < cmdlen && *p != '\0' && *p != '\n' && isspace(*p))
+          ++p;
+        if (*p == '\0' || *p == '\n' || p-cmdline < cmdlen)
+          break;
+ 
+        // make sure there's room in argv[argc]
+        if (argc >= argv_len) {
+          int new_argv_len = argv_len*2;
+          char** new_argv = reinterpret_cast<char**>(realloc(argv,sizeof(argv[0]) * new_argv_len));
+          if (!new_argv) {
+            free(argv);
+            free(cmdline);
+            throw ExitEx(1);
+          }
+          argv = new_argv;
+          argv_len = new_argv_len;
+        }
+
+        { // terminate the argument, and handle enclosing "" and '' too, as well as \ sequences
+          char terminator = ' ';
+          if (*p == '\'' || *p == '"') 
+            terminator = *p++;
+          char* q = p;
+          
+          argv[argc++] = p;
+
+          while (p-cmdline < cmdlen && *p != '\0' && *p != '\n' && *p != terminator) {
+            if (*p == '\\') {
+              p++;
+              if (p-cmdline >= cmdlen || *p == '\0' || *p == '\n')
+                break;
+            }
+            *q++ = *p++;
+          }
+          // q points just beyond the last char
+          
+          // skip over the final "" or ''
+          if (p-cmdline < cmdlen && *p == terminator)
+            ++p;
+          
+          // terminate the string (which might overwrite the final "" or '')
+          *q = '\0';
+        }
+      }
+    }
+
+    // now execute argv
+
+    try {
+      try {
+        int idx = parse(argc, argv);
+     
+  #ifndef X_DISPLAY_MISSING
+        // if no --ignore was specified, use the default
+        if (arg_ignore.empty()) {
+          const char* ig = getenv("PWSAFE_IGNORE");
+          if (!ig) 
+            // by default ignore requests from common clipboard managers
+            // xclipboard is the canonical one
+            // klipper from the KDE desktop
+            // wmcliphist from windowmaker
+            // ??? from gnome
+            ig = "xclipboard;klipper:wmcliphist";
+          while (*ig) {
+            const char*const q = ig;
+            while (*ig && *ig != ';') ++ig;
+            arg_ignore.insert(arg_ignore_t::value_type(q,ig-q));
+            while (*ig == ';') ++ig;
+          }
+        }
+  #endif
+        
+        if (arg_op == OP_LIST && (arg_username || arg_password))
+          // this is actually an OP_EMIT and not an OP_LIST
+          arg_op = OP_EMIT;
+        
+        if (idx != argc) {
+          if ((arg_op == OP_LIST || arg_op == OP_EMIT || arg_op == OP_ADD || arg_op == OP_EDIT || arg_op == OP_DELETE) && idx+1 == argc) {
+            arg_name = argv[idx];
+          } else {
+            fprintf(stderr, "%s - Too many arguments\n", program_name);
+            usage(true);
+          }
+        }
+
+        if (!arg_dbname) {
+          // $HOME wasn't set and -f wasn't used; we have no idea what we should be opening
+          fprintf(stderr, "$HOME wasn't set; --file must be used\n");
+          throw FailEx();
+        }
+
+        if (!arg_name && (arg_op == OP_EMIT || arg_op == OP_EDIT || arg_op == OP_DELETE)) {
+          fprintf(stderr, "An entry must be specified\n");
+          throw FailEx();
+        }
+
+        if (arg_name && !arg_casesensative) {
+          // automatically be case sensative of arg_name contains any uppercase chars
+          const char* p = arg_name;
+          while (*p)
+            if (isupper(*p++)) {
+              arg_casesensative = true;
+              break;
+            }
+        }
+
+  #ifndef X_DISPLAY_MISSING
+        if (arg_xclip && !XDisplayName(arg_display)) {
+          fprintf(stderr, "$DISPLAY isn't set; use --display\n");
+          throw FailEx();
+        }
+  #endif
+
+        // mess around stdout and outfile so they are intelligently selected
+        // what we want is usages like "pwsafe | less" to work correctly
+        if (arg_output) {
+          outfile = fopen(arg_output,"w");
+        } else if (!isatty(STDOUT_FILENO) && isatty(STDERR_FILENO)) {
+          // if stdout is not a tty but stderr is, use stderr to interact with the user, but still write the output to stdout
+          dup2(STDOUT_FILENO,3);
+          dup2(STDERR_FILENO,STDOUT_FILENO);
+          outfile = fdopen(3,"w");
+        } else {
+          // use stdout
+          outfile = fdopen(dup(STDOUT_FILENO),"w");
+        }
+        if (!outfile) {
+          fprintf(stderr, "Can't open %s: %s\n", arg_output, strerror(errno));
+          throw FailEx();
+        }
+        // from this point on stdout points to something we can interact with the user on, and outfile points to where we should put our output
+   
+
+  #ifndef X_DISPLAY_MISSING
+        if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo || arg_xclip))
+          printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
+  #else
+        if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo))
+          printf("Going to print %s to stdout\n", arg_password&&arg_username?"login and password":arg_password?"password":"login");
+  #endif
+
+        switch (arg_op) {
+        case OP_EXPORTDB:
+        case OP_MERGEDB:
+        case OP_PASSWD:
+        case OP_LIST:
+        case OP_EMIT:
+        case OP_ADD:
+        case OP_EDIT:
+        case OP_DELETE:
+          {
+            try {
+              switch (arg_op) {
+              case OP_EXPORTDB:
+                db.exportdb();
+                break;
+              case OP_MERGEDB:
+                {
+                  DB db2(arg_mergedb);
+                  db.mergedb(db2);
+                }
+                break;
+              case OP_PASSWD:
+                db.passwd();
+                break;
+              case OP_LIST:
+                db.list(arg_name);
+                break;
+              case OP_EMIT:
+                db.emit(arg_name, arg_username, arg_password);
+                break;
+              case OP_ADD:
+                db.add(arg_name);
+                if (!arg_name) {
+                  // let them add more than one without having to reenter the passphrase
+                  while (getyn("Add another? [n] ", false))
+                    db.add(NULL);
+                }
+                break;
+              case OP_EDIT:
+                db.edit(arg_name);
+                break;
+              case OP_DELETE:
+                db.del(arg_name);
+                break;
+              }
+
+              // backup and save if changes have occured
+              if (db.is_changed()) {
+                if (arg_verbose) printf("saving changes to %s\n", db.dbname);
+                if (!(db.backup() && db.save()))
+                  throw FailEx();
+              }
+                
+            } catch (const FailEx&) {
+              // try and restore database from backup if a backup was successfully created
+              db.restore();
+              throw;
+            }
+          }
+          break;
+        }
+
+        // first try and close outfile with error checking
+        if (outfile) {
+          if (fclose(outfile)) {
+            fprintf(stderr, "Can't write/close output: %s", strerror(errno));
+            outfile = NULL;
+            throw FailEx();
+          }
+          outfile = NULL;
+        }
+
+        // and we are done
+        throw ExitEx(0);
+        
+      } catch (const FailEx&) {
+        throw ExitEx(1);
+      }
+    } catch (const ExitEx& ex) {
+      if (outfile)
+        fclose(outfile);
+      break;
+    }
+  }
+}
+
+
 int main(int argc, char **argv) {
   program_name = strrchr(argv[0], '/');
   if (!program_name)
@@ -506,18 +737,6 @@ int main(int argc, char **argv) {
         else
 #endif
           arg_echo = true;
-  
-        // if $0 mentions the word agent then we are automatically in agent mode
-        // (so you can ln pwsafe pwsafe-agent)
-        if (strstr(program_name, "-agent"))
-          arg_op = OP_AGENT;
-
-        // if $SHELL ends in "csh" then assume --csh
-        {
-          const char* s = getenv("SHELL");
-          if (s && strlen(s) >= 3 && strcmp(s+strlen(s)-3, "csh") == 0)
-            arg_csh = true;
-        }
       }
 
       int idx = parse(argc, argv);
@@ -525,16 +744,17 @@ int main(int argc, char **argv) {
 #ifndef X_DISPLAY_MISSING
       // if no --ignore was specified, use the default
       if (arg_ignore.empty()) {
-        arg_ignore.insert("xclipboard");
-        arg_ignore.insert("klipper");
-        arg_ignore.insert("wmcliphist");
+        const char* ig = getenv("PWSAFE_IGNORE");
+        if (!ig) ig = "xclipboard:klipper:wmcliphist";
+        while (*ig) {
+          const char*const q = ig;
+          while (*ig && *ig != ';') ++ig;
+          arg_ignore.insert(arg_ignore_t::value_type(q,ig-q));
+          while (*ig == ';') ++ig;
+        }
       }
 #endif
       
-      if (arg_op == OP_NOP)
-        // assume --list
-        arg_op = OP_LIST;
-
       if (arg_op == OP_LIST && (arg_username || arg_password))
         // this is actually an OP_EMIT and not an OP_LIST
         arg_op = OP_EMIT;
@@ -609,44 +829,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
       }
 
-      // connect to the agent, if one exists
-      {
-        const char* ap = getenv(PWSAFE_AGENT_PID);
-        if (ap) {
-          pid_t p = atoi(ap);
-          if (p < 1) {
-            fprintf(stderr, "WARNING: value of " PWSAFE_AGENT_PID " (%s) is not a pid\n", ap);
-          } else {
-            agent_pid = p;
-
-            const char* as = getenv(PWSAFE_AUTH_SOCK);
-            if (as) {
-              agent_sock = open(as,O_NOFOLLOW|O_RDWR); // O_NOFOLLOW out of paranioa
-              if (agent_sock == -1) {
-                fprintf(stderr, "WARNING: cannot open " PWSAFE_AGENT_PID " (%s): %s\n", as, strerror(errno));
-              } else {
-                // should we check in /proc that the PID is that of pwsafe-agent?
-
-                agent_fsock = fdopen(agent_sock, "w+");
-                if (!agent_fsock) {
-                  fprintf(stderr, "WARNING: cannot fopen " PWSAFE_AGENT_PID " (%s): %s\n", as, strerror(errno));
-                  close(agent_sock);
-                  agent_sock = -1;
-                } else {
-                  // ok if we get this far we are ok
-                  if (arg_verbose) fprintf(stderr, "connected succesfuly with pwsafe agent\n");
-                }
-              }
-            } else {
-              fprintf(stderr, "WARNING: " PWSAFE_AGENT_PID " is set but " PWSAFE_AUTH_SOCK " is not\n");
-            }
-          }
-        }
-        else {
-          if (arg_verbose) fprintf(stderr, PWSAFE_AGENT_PID " is not set; assuming no pwsafe agent\n");
-        }
-      }
-
 #ifndef X_DISPLAY_MISSING
       if (/*arg_verbose && */(arg_password || arg_username) && (arg_echo || arg_xclip))
         printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
@@ -657,13 +839,10 @@ int main(int argc, char **argv) {
       DB::Init();
 
       switch (arg_op) {
-      case OP_NOP:
-        fprintf (stderr, "%s - No command specified\n", program_name);
-        usage(true);
-        break;
       case OP_CREATEDB:
         DB::createdb(arg_dbname);
         break;
+      case OP_NOP:
       case OP_EXPORTDB:
       case OP_MERGEDB:
       case OP_PASSWD:
@@ -676,6 +855,9 @@ int main(int argc, char **argv) {
           DB db(arg_dbname);
           try {
             switch (arg_op) {
+            case OP_NOP:
+              interactive(db);
+              break;
             case OP_EXPORTDB:
               db.exportdb();
               break;
@@ -724,107 +906,6 @@ int main(int argc, char **argv) {
           }
         }
         break;
-      case OP_AGENT:
-        if (!arg_kill) { // fork off and become pwsafe passphrase agent
-          const char* tmp = getenv("TMP");
-          if (!tmp) tmp = getenv("TEMP");
-          if (!tmp) tmp = "/tmp";
-          std::string sockpath = tmp;
-          sockpath += "/pwsafe-";
-          sockpath += DB::defaultlogin().c_str();
-
-          { // create the directory sockpath if it doesn't exist; check its mode if it does
-            if (mkdir(sockpath.c_str(), 0700)) {
-              if (errno != EEXIST) {
-                fprintf(stderr, "Can't create %s: %s\n", sockpath.c_str(), strerror(errno));
-                throw FailEx();
-              }
-              // else check it
-            }
-            struct stat s;
-            if (lstat(sockpath.c_str(), &s) ||
-                !S_ISDIR(s.st_mode) ||
-                (s.st_mode & (0777) != 0700) ||
-                s.st_uid != getuid() ||
-                s.st_gid != getgid()) {
-              fprintf(stderr, "%s is suspicious. Delete it and try again\n", sockpath.c_str());
-              throw FailEx();
-            }
-          }
-
-          int sock = socket(PF_UNIX, SOCK_STREAM, 0);
-          if (sock < 0) {
-            fprintf(stderr, "Can't create socket: %s\n", strerror(errno));
-            throw FailEx();
-          }
-
-          std::string sockname = sockpath;
-          sockname += "/agent.";
-          char buf[16];
-          snprintf(buf, sizeof(buf), "%d", getppid());
-          sockname += buf;
-
-          sockaddr_un sun;
-          memset(&sun,0,sizeof(sun));
-          sun.sun_family = AF_UNIX;
-          strncpy(sun.sun_path, sockname.c_str(), sizeof(sun.sun_path));
-          sun.sun_path[sizeof(sun.sun_path)-1] = '\0';
-          if (bind(sock, (struct sockaddr*)&sun, sizeof(sun))) {
-            fprintf(stderr, "Can't bind socket to %s: %s\n", sockname.c_str(), strerror(errno));
-            close(sock);
-            throw FailEx();
-          }
-          if (listen(sock, 10)) {
-            fprintf(stderr, "Can't listen on socket %s: %s\n", sockname.c_str(), strerror(errno));
-            close(sock);
-            throw FailEx();
-          }
-
-          pid_t pid;
-          if (arg_debug)
-            // don't fork if we're debugging
-            pid = getpid();
-          else
-            pid = fork();
-          if (pid) {
-            if (arg_csh)
-              printf("setenv " PWSAFE_AUTH_SOCK " %s;\n"
-                     "setenv " PWSAFE_AGENT_PID " %d;\n"
-                     "echo pwsafe agent pid %d\n", sockname.c_str(), pid, pid);
-            else
-              printf(PWSAFE_AUTH_SOCK "=%s; export " PWSAFE_AUTH_SOCK ";\n"
-                     PWSAFE_AGENT_PID "=%d; export " PWSAFE_AGENT_PID ";\n"
-                     "echo pwsafe agent pid %d\n", sockname.c_str(), pid, pid);
-          }
-          if (!pid || arg_debug) 
-            agent(sock, sockname, sockpath);
-          // else we are done
-          close(sock);
-        }
-        else {
-          // kill the current agent
-          if (!agent_pid) {
-            fprintf(stderr, PWSAFE_AGENT_PID " is not set; cannot kill pwsafe agent\n");
-            throw FailEx();
-          }
-          // should we send a message rather than kill()ing?
-          if (!agent_fsock || tell_agent("exit") != 200) {
-            if (kill(agent_pid, SIGTERM) < 0) {
-              fprintf(stderr, "kill(" PWSAFE_AGENT_PID "=%d) failed: %s\n", agent_pid, strerror(errno));
-              throw FailEx();
-            }
-          }
-          // looks like we killed something, so emit the correct commands to unconfigure the shell
-          if (arg_csh)
-            printf("unsetenv " PWSAFE_AUTH_SOCK ";\n"
-                   "unsetenv " PWSAFE_AGENT_PID ";\n"
-                   "echo pwsafe agent pid %d killed\n", agent_pid);
-          else
-            printf("unset " PWSAFE_AUTH_SOCK ";\n"
-                   "unset " PWSAFE_AGENT_PID ";\n"
-                   "echo pwsafe agent pid %d killed\n", agent_pid);
-        }
-        break;
       }
 
       // first try and close outfile with error checking
@@ -857,11 +938,6 @@ int main(int argc, char **argv) {
     if (outfile)
       fclose(outfile);
     
-    if (agent_fsock)
-      fclose(agent_fsock);
-    if (agent_sock != -1)
-      close(agent_sock);
-    
     return ex.rc;
   }
 }
@@ -888,7 +964,6 @@ static int parse(int argc, char **argv) {
           "s:"  // x selection
           "G:"  // ignore
 #endif
-          "k"   // kill
           "v"   // verbose
           "g"   // debug
           "h"   // help
@@ -944,23 +1019,6 @@ static int parse(int argc, char **argv) {
           arg_op = OP_DELETE;
         else
           usage(true);
-        break;
-      case 'A':
-        if (arg_op == OP_NOP)
-          arg_op = OP_AGENT;
-        else
-          usage(true);
-        break;
-      case 'C'&31:
-        arg_csh = true;
-        break;
-      case 'k':
-        if (arg_op == OP_NOP || arg_op == OP_AGENT) {
-          arg_op = OP_AGENT;
-          arg_kill = true;
-        } else
-          usage(true);
-        break;
         break;
 //      case 'F':
 //        arg_config = optarg;
@@ -1063,7 +1121,6 @@ static void usage(bool fail) {
         "  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x)\n"
         "  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard and klipper)\n"
 #endif
-        "  --csh                      emit csh commands\n"
         "  -v, --verbose              print more information (can be repeated)\n"
         "  -h, --help                 display this help and exit\n"
         "  -V, --version              output version information and exit\n"
@@ -1076,8 +1133,6 @@ static void usage(bool fail) {
         "  -a, --add [NAME]           add an entry\n"
         "  -e, --edit REGEX           edit an entry\n"
         "  --delete NAME              delete an entry\n"
-        "  --agent                    be pwsafe passphrase agent\n"
-        "  -k, --kill                 kill pwsafe passphrase agent\n"
       );
   if (fail)
     throw FailEx();
@@ -2926,176 +2981,6 @@ void* secalloc::reallocate(void* p, size_t old_n, size_t new_n) {
   memcpy(new_p, p, std::min(old_n, new_n));
   deallocate(p, old_n);
   return new_p;
-}
-
-// ----- agent mode -------------------------------------------------------------------
-
-static bool agent_exit = false;
-static void cleanup_agent(int) {
-  agent_exit = true;
-}
-
-struct FreeMe {
-    void*const ptr;
-    FreeMe(void* p) : ptr(p) {}
-    ~FreeMe() { free(ptr); }
-};
-struct FCloseMe {
-    FILE*const f;
-    FCloseMe(FILE* ff) : f(ff) {}
-    ~FCloseMe() { fclose(f); }
-};
-
-static void agent_handle_client(const int sock) {
-  FILE*const f = fdopen(sock, "w+b");
-  if (f) {
-    FCloseMe fcloseme(f);
-    char* line = 0;
-    size_t len = 0;
-    ssize_t r = getline(&line,&len,f);
-    if (r < 0)
-      return;
-    FreeMe freeme(line);
-    if (len > 1024 || len == 0 || !line)
-      // assume someone is messing with us
-      return;
-    if (line[len-1] == '\n')
-      line[len-1] = '\0';
-    const std::string cmd = line;
-    if (cmd == "exit") {
-      ::fputs("200 ok, exiting\n",f);
-      agent_exit = true;
-    }
-    else if (cmd.substr(0,4) == "add ") {
-      const std::string name = cmd.substr(4,cmd.find_first_of(4,' '));
-      const std::string value = cmd.substr(4+name.length()+1);
-
-      fputs("200 add went ok\n",f);
-    }
-    else if (cmd.substr(0,4) == "get ") {
-    }
-    else {
-      // we don't know what they want
-      fputs("500 unknown cmd\n",f);
-    }
-  }
-}
-
-static void agent(const int sock, const std::string& sockname, const std::string& sockdir) {
-  if (outfile) {
-    fclose(outfile);
-    outfile = NULL;
-  }
-  setsid();
-  chdir("/");
-  {
-    const int devnull = open("/dev/null", O_RDWR, 0);
-    dup2(devnull, STDIN_FILENO);
-    dup2(devnull, STDOUT_FILENO);
-    dup2(devnull, STDERR_FILENO);
-    close(devnull);
-  }
-  
-#ifdef HAVE_SETRLIMIT
-  if (!arg_debug) {
-    // turn off core dumps
-    struct rlimit r;
-    r.rlim_cur = r.rlim_max = 0;
-    setrlimit(RLIMIT_CORE, &r);
-  }
-#endif
- 
-  signal(SIGPIPE, SIG_IGN); // clients will be hanging up on us abruptly when they crash or ctrl-c; don't worry
-  signal(SIGHUP, cleanup_agent);
-  signal(SIGTERM, cleanup_agent);
-
-#if HAVE_SCM_CREDENTIALS
-  {
-    int one = 1;
-    setsockopt(sock, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
-  }
-#endif
-
-  while (!agent_exit) {
-    sockaddr sa;
-    sockaddr_un& un = reinterpret_cast<sockaddr_un&>(sa);
-    socklen_t slen = sizeof(sa);
-    const int s = accept(sock, &sa, &slen);
-    if (s >= 0) {
-      if (sa.sa_family == AF_UNIX) {
-#if HAVE_SCM_CREDENTIALS
-        // check who it is who is calling. We want the same exe, uid and gid (though root of course can fake this)
-        ucred c;
-        socklen_t clen = sizeof(c);
-        if (!getsockopt(s, SOL_SOCKET, SO_PEERCRED, &c, &clen) &&
-            clen == sizeof(c) &&
-            c.uid == getuid() &&
-            c.gid == getgid()) {
-          // check that process is same file as us (that it is the same pwsafe executable)a
-          // maybe there is an easy way to test the device/inode number, but I don't see it,
-          // so for now I test the filename strings
-          char exe[1024];
-          snprintf(exe,sizeof(exe),"/proc/%d/exe",c.pid);
-          char bin[1024];
-          if (readlink(exe, bin, sizeof(bin)) > 0) {
-            snprintf(exe,sizeof(exe),"/proc/%d/exe",getpid());
-            char us[1024];
-            if (readlink(exe, us, sizeof(us)) > 0) {
-              if (strcmp(bin, us) == 0) {
-                // ok, we like this client
-                agent_handle_client(s);
-              }
-            }
-          }
-        }
-#else
-        // we can't test much about the client, so assume they are good if they could open the socket
-        agent_handle_client(s);
-#endif
-      }
-      close(s);
-    } else if (errno != EINTR)
-      break;
-  }
-
-  unlink(sockname.c_str());
-  close(sock);
-  // and if the dir is empty rmdir succeeds, and if it isn't it doesn't and that's ok
-  rmdir(sockdir.c_str());
-  throw ExitEx(0);
-}
-
-int tell_agent(const char* cmd) {
-  if (agent_fsock) {
-    alarm(15); // give ourselves 15 seconds to complete this before timout out
-    fputs(cmd, agent_fsock);
-    fflush(agent_fsock);
-     
-    char* line = 0;
-    size_t len = 0;
-    ssize_t r = getline(&line,&len,agent_fsock);
-    if (r < 0 || !line) {
-      fprintf(stderr, "ERROR: read from pwsafe-agent failed: %s\n", strerror(errno));
-      throw FailEx();
-    }
-    FreeMe freeme(line);
-    if (len > 1024 || len == 0 || !line) {
-      // assume someone is messing with us
-      fprintf(stderr, "ERROR: truncated response from pwsafe-agent\n");
-      throw FailEx();
-    }
-    if (line[len-1] == '\n')
-      line[len-1] = '\0';
-    int rc = atoi(line);
-    if (rc == 0) {
-      fprintf(stderr, "ERROR: funny response from pwsafe-agent\n");
-      throw FailEx();
-    }
-    return rc;
-  } else {
-    fprintf(stderr, "ERROR: not connected to pwsafe-agent\n");
-    throw FailEx();
-  }
 }
 
 // ----- cheap readline() substitute for without-readline builds ----------------------
