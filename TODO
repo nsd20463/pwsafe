@@ -1,19 +1,16 @@
 
 --add from --input file for bulk import
 
-Some way of entering multiline nodes. Perhaps
+Some way of entering multiline notes. Perhaps
 the ole 'single . on a line' termination that
 mail & smtp use?
 
 curses based interface?
 
-make secstring use secure storage either with a special allocator class or by rewriting it from scratch
-and/or make it use ram locked in with mlock, and/or the encrypted strings that passwordsafe uses.
-
 don't read entire db into RAM---just decrypt the name and the string lengths.
---add can be done w/o decrypting anything!
+--add can be done w/o decrypting any strings!
 
-pwsafe-agent mode? (ala ssh-agent)
+pwsafe-agent mode (like ssh-agent)? with encrypted string like win32 passwordsafe?
 
 avoid passing data to klipper & friends by doing a test X selection first and
 seeing who grabs it. trick seems that klipper changed behavior. in kde 3.0
@@ -21,6 +18,4 @@ seeing who grabs it. trick seems that klipper changed behavior. in kde 3.0
 rather like xclipboard does. Gnome must also have some sort of clipboard
 daemon, but testing would mean running gnome, which I'm not too excited about
 doing.
-
-seed RNG from ~/.rnd and/or somesuch
 

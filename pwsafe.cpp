@@ -402,6 +402,19 @@ int main(int argc, char **argv) {
       throw FailEx();
     }
 
+    // seed the random number generator
+    char rng_filename[1024];
+    if (RAND_file_name(rng_filename,sizeof(rng_filename))) {
+      int rc = RAND_load_file(rng_filename,-1);
+      if (rc) {
+        if (arg_verbose) printf("rng seeded with %d bytes from %s\n", rc, rng_filename);
+      } else {
+        fprintf(stderr, "WARNING: %s unable to seed rng from %s\n", program_name, rng_filename);
+      }
+    } else {
+      fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
+    }
+
 #ifndef X_DISPLAY_MISSING
     if (arg_verbose && (arg_password || arg_username) && (arg_echo || arg_xclip))
       printf("Going to copy %s to %s\n", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
@@ -481,6 +494,12 @@ int main(int argc, char **argv) {
         throw FailEx();
       }
 
+    // save the rng seed for next time
+    if (rng_filename[0]) {
+      int rc = RAND_write_file(rng_filename);
+      if (arg_verbose) printf("Wrote %d bytes to %s\n", rc, rng_filename);
+    } // else they already got an error above
+ 
     return 0;
     
   } catch (const FailEx&) {
