@@ -31,10 +31,11 @@
 #include <errno.h>
 #include <pwd.h>
 #include <regex.h>
+#include <sys/mman.h>
+#include <limits.h>
 
 #include <string>
 #include <map>
-#include <set>
 #include <vector>
 #include <algorithm>
 
@@ -72,6 +73,8 @@ extern "C" {
 
 // The name the program was run with, stripped of any leading path
 const char *program_name;
+uid_t saved_uid;
+gid_t saved_gid;
 
 // Option flags and variables
 const char* arg_dbname = NULL;
@@ -124,15 +127,45 @@ static struct option const long_options[] =
   {NULL, 0, NULL, 0}
 };
 
+
+// an allocator class that allocates from secure (non-swapable) storage
+class secalloc {
+public:
+  static const size_t pagesize;
+private:
+  struct Pool {
+    Pool* next;
+    char* bottom;
+    char* top;
+    char* level;
+    Pool(size_t);
+    ~Pool();
+  };
+  static Pool* pools;
+public:
+  secalloc(size_t initial_pool=0);
+  ~secalloc() { cleanup(); }
+  static void cleanup();
+  static void* allocate(size_t);
+  static void deallocate(void*, size_t);
+  static void* reallocate(void*, size_t, size_t);
+};
+
+// a string class for handling strings that must not be swapped out---we use the secure allocator
+typedef std::basic_string<char, std::string_char_traits<char>, secalloc> secstring;
+
 static void usage(bool fail);
 static int parse(int argc, char **argv);
 static const char* pwsafe_strerror(int err); // decodes errno's as well as our negative error codes
 #define PWSAFE_ERR_INVALID_DB -1
 
-static char get1char(const std::string& prompt, int def_val=-1);
-static bool getyn(const std::string& prompt, int def_val=-1);
+static char get1char(const char* prompt, int def_val=-1);
+static bool getyn(const char* prompt, int def_val=-1);
 
-typedef std::string secstring; // for now; later we can modify the storage so it is not swapped out, and overwritten when freed
+static inline char get1char(const std::string& prompt, int dev_val=-1) { return get1char(prompt.c_str(), dev_val); }
+static inline char get1char(const secstring& prompt, int dev_val=-1) { return get1char(prompt.c_str(), dev_val); }
+static inline bool getyn(const std::string& prompt, int dev_val=-1) { return get1char(prompt.c_str(), dev_val); }
+static inline bool getyn(const secstring& prompt, int dev_val=-1) { return get1char(prompt.c_str(), dev_val); }
 
 struct FailEx {}; // thrown to unwind, cleanup and cause main to return 1
   
@@ -163,7 +196,7 @@ public:
 
 class DB {
 private:
-  // the file header
+  // the file header, which is kept in secalloc just the secstrings
   struct Header {
     unsigned char random[8];
     unsigned char hash[SHA_DIGEST_LENGTH]; // 20
@@ -171,22 +204,30 @@ private:
     unsigned char iv[8];
 
     Header();
-    ~Header();
+    virtual ~Header();
     void zero();
     bool create();
     bool resalt();
     bool read(FILE*);
     bool write(FILE*) const;
-  };
-  Header* header; // so header can be in secure memory
 
-  // the crypto context (exists only when read/writing the database)
+    // overload new and delete to the Header is kept in secalloc's memory
+    void* operator new(size_t n) { return secalloc::allocate(n); }
+    void operator delete(void* p,size_t n) { secalloc::deallocate(p,n); }
+  };
+  Header* header;
+
+  // the crypto context (exists only when read/writing the database). also kept in secalloc memory
   struct Context {
     Block cbc;
     BF_KEY bf;
 
     Context(const Header&, const secstring& pw);
-    ~Context();
+    virtual ~Context();
+
+    // overload new and delete so Context is kept in secalloc's memory
+    void* operator new(size_t n) { return secalloc::allocate(n); }
+    void operator delete(void* p,size_t n) { secalloc::deallocate(p,n); }
   };
 
   struct Entry {
@@ -224,7 +265,7 @@ private:
   bool backedup; // true after backup() has succeeded
   bool overwritten; // true once we start overwriting dbname
 
-  bool getkey(bool test, const char* prompt1="Enter passphrase", const char* prompt2="Reenter passphrase"); // ask for password
+  bool getkey(bool test, const char* prompt1="Enter passphrase", const char* prompt2="Reenter passphrase"); // get/verify passphrase
   bool open(); // call getkey(), read file into entries map
 
   bool find(matches_t&, const char* regex); // find all entries matching regex
@@ -255,6 +296,15 @@ public:
 
 int main(int argc, char **argv) {
   try {
+    saved_uid = geteuid();
+    saved_gid = getegid();
+    
+    // if we are running suid, drop privileges now; we use seteuid() instead of setuid() so the saved uid remains root and we can become root again in order to mlock()
+    if (saved_uid != getuid() || saved_gid != getgid()) {
+      setegid(getgid());
+      seteuid(getuid());
+    }
+
     program_name = strrchr(argv[0], '/');
     if (!program_name)
       program_name = argv[0];
@@ -263,8 +313,11 @@ int main(int argc, char **argv) {
 
     rl_readline_name = program_name; // so readline() can parse its config files and handle if (pwsafe) sections
 
+    secalloc allocator; // so secalloc::cleanup() is always called
+
     // be nice and paranoid
     umask(0077);
+
 
     // init some arguments
     {
@@ -626,7 +679,7 @@ static char* dummy_completion(const char*, int)
 
 
 // get a password from the user
-static secstring getpw(const std::string& prompt) {
+static secstring getpw(const char*const prompt) {
   // turn off echo
   struct termios tio;
   tcgetattr(STDIN_FILENO, &tio);
@@ -636,7 +689,7 @@ static secstring getpw(const std::string& prompt) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_tio); // FLUSH so they don't get into the habit of typing ahead their passphrase
   }
   rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
-  char* x = readline(prompt.c_str());
+  char* x = readline(prompt);
   // restore echo
   tcsetattr(STDIN_FILENO, TCSANOW, &tio);
   // echo a linefeed since the user's <Enter> was not echoed
@@ -652,10 +705,11 @@ static secstring getpw(const std::string& prompt) {
     throw FailEx();
   }
 }
+static inline secstring getpw(const std::string& prompt) { return getpw(prompt.c_str()); }
 
-static secstring gettxt(const std::string& prompt, const secstring& default_="") {
+static secstring gettxt(const char*const prompt, const secstring& default_="") {
   rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
-  char* x = readline(prompt.c_str());
+  char* x = readline(prompt);
   if (x) {
     secstring xx(x);
     memset(x,0,strlen(x));
@@ -669,8 +723,10 @@ static secstring gettxt(const std::string& prompt, const secstring& default_="")
     throw FailEx();
   }
 }
+static inline secstring gettxt(const std::string& prompt, const secstring& default_="") { return gettxt(prompt.c_str(), default_); }
+static inline secstring gettxt(const secstring& prompt, const secstring& default_="") { return gettxt(prompt.c_str(), default_); }
 
-static char get1char(const std::string& prompt, int def_val) {
+static char get1char(const char*const prompt, const int def_val) {
   struct termios tio;
   tcgetattr(STDIN_FILENO, &tio);
   {
@@ -683,7 +739,7 @@ static char get1char(const std::string& prompt, int def_val) {
   }
 
   while (true) {
-    printf("%s",prompt.c_str());
+    printf("%s",prompt);
     fflush(stdout);
     char x;
     ssize_t rc = read(STDIN_FILENO,&x,1);
@@ -714,7 +770,7 @@ static char get1char(const std::string& prompt, int def_val) {
   }
 }
 
-static bool getyn(const std::string& prompt, int def_val) {
+static bool getyn(const char*const prompt, const int def_val) {
   while (true) {
     char c = get1char(prompt, def_val>0?'y':def_val==0?'n':-1);
     switch (c) {
@@ -891,10 +947,6 @@ static void emit(const secstring& name, const char*const what, const secstring& 
     }
 
     static const Atom CLIPBOARD = XA_CLIPBOARD(xdisplay); // optimize by fetching this one only once
-    
-    typedef std::set<Window> snarfers_t;
-    static snarfers_t snarfers; // the set of windows that come and get a copy of anything you advertise over X
-    static bool snarfers_inited = false;
 
     Atom xsel1 = 0, xsel2 = 0;
     int num_sel = 1;
@@ -920,6 +972,7 @@ static void emit(const secstring& name, const char*const what, const secstring& 
     }
 
     Time timestamp = 0;
+    Window prev_requestor = 0, prevprev_requestor = 0;
     while (xsel1 || xsel2) {
       XEvent xev;
       XNextEvent(xdisplay, &xev);
@@ -946,19 +999,15 @@ static void emit(const secstring& name, const char*const what, const secstring& 
 
           // let the user know
           if (arg_verbose>1) {
-            if (!snarfers_inited)
-              printf("X selection(s) owned to attract snarfers\n");
-            else if (xsel1 && xsel2)
+            if (xsel1 && xsel2)
               printf("X selections %s and %s contain %s for %s\n", stxt1, stxt2, what, name.c_str());
             else if (xsel1)
               printf("X selection %s contains %s for %s\n", stxt1, what, name.c_str());
           } else {
-            if (snarfers_inited) {
-              if (xsel1 && xsel2)
-                printf("You are ready to paste the %s for %s from %s and %s\n", what, name.c_str(), stxt1, stxt2);
-              else if (xsel1)
-                printf("You are ready to paste the %s for %s from %s\n", what, name.c_str(), stxt1);
-            } // else please stand by as we wait for snarfers to make contact
+            if (xsel1 && xsel2)
+              printf("You are ready to paste the %s for %s from %s and %s\n", what, name.c_str(), stxt1, stxt2);
+            else if (xsel1)
+              printf("You are ready to paste the %s for %s from %s\n", what, name.c_str(), stxt1);
           }
         }
       }
@@ -991,13 +1040,7 @@ static void emit(const secstring& name, const char*const what, const secstring& 
           }
           else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
               xev.xselectionrequest.target == XA_STRING) {
-
-            const bool new_snarf = (!snarfers_inited && snarfers.find(xev.xselectionrequest.requestor) != snarfers.end());
-            if (new_snarf)
-              snarfers.insert(xev.xselectionrequest.requestor);
-            const bool snarf = (snarfers.find(xev.xselectionrequest.requestor) != snarfers.end());
- 
-            if (!snarf || new_snarf) { // print out the fact that we are answering a selection request
+            if (/*arg_verbose &&*/ xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
               // be very verbose about who is asking for the selection---it could catch a clipboard sniffer
               const char*const selection = xev.xselectionrequest.selection == xsel1 ? stxt1 : stxt2; // we know xselectionrequest.selection is xsel1 or xsel2 already, so no need to be more paranoid
 
@@ -1038,21 +1081,14 @@ static void emit(const secstring& name, const char*const what, const secstring& 
               if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
                 host = reinterpret_cast<const char*>(cm.value);
  
-              if (!snarf)
-                printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
-              else
-                if (arg_verbose)
-                  printf("Sending nothing to snarfer %s@%s via %s\n", requestor, host, selection);
+              printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
 
               if (nm.value) XFree(nm.value);
               if (cm.value) XFree(cm.value);
             }
-
-            if (!snarf)
-              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
-            else
-              // snarferss just get an empty string
-              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(""), 0);
+            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
+            prevprev_requestor = prev_requestor;
+            prev_requestor = xev.xselectionrequest.requestor;
           }
           else {
             // a target I don't handle
@@ -1304,22 +1340,27 @@ bool DB::open() {
  
   if (getkey(true)) {
     // load the rest of the file
-    
-    Context ctxt(*header, passphrase);
-
-    errno = 0; // because successfull reads don't clear errno but it might be non-zero due to earlier failures (like backup file not existing)
-    while (!feof(file)) {
-      Entry e;
-      if (e.read(file,ctxt)) {
-        entries.insert(entries_t::value_type(e.name,e));
-      } else {
-        if (errno || !feof(file)) {
-          fprintf(stderr,"Can't read %s: %s\n", dbname, pwsafe_strerror(errno));
-          fclose(file);
-          return false;
+    Context*const ctxt = new Context(*header, passphrase); // so context resides in secure memory
+    try {
+      errno = 0; // because successfull reads don't clear errno but it might be non-zero due to earlier failures (like backup file not existing)
+      while (!feof(file)) {
+        Entry e;
+        if (e.read(file,*ctxt)) {
+          entries.insert(entries_t::value_type(e.name,e));
+        } else {
+          if (errno || !feof(file)) {
+            delete ctxt;
+            fprintf(stderr,"Can't read %s: %s\n", dbname, pwsafe_strerror(errno));
+            fclose(file);
+            return false;
+          }
         }
       }
+    } catch (...) {
+      delete ctxt;
+      throw;
     }
+    delete ctxt;
   }
 
   if (fclose(file)) {
@@ -1435,15 +1476,21 @@ bool DB::save() {
     return false;
   }
 
-  Context ctxt(*header, passphrase);
-
-  for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); i++) {
-    if (!i->second.write(f,ctxt)) {
-      fprintf(stderr,"Can't write %s: %s\n", dbname, pwsafe_strerror(errno));
-      fclose(f);
-      return false;
+  Context*const ctxt = new Context(*header, passphrase);
+  try {
+    for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); i++) {
+      if (!i->second.write(f,*ctxt)) {
+        delete ctxt;
+        fprintf(stderr,"Can't write %s: %s\n", dbname, pwsafe_strerror(errno));
+        fclose(f);
+        return false;
+      }
     }
+  } catch (...) {
+    delete ctxt;
+    throw;
   }
+  delete ctxt;
 
   if (fclose(f)) {
     fprintf(stderr,"Can't write/close %s: %s\n", dbname, strerror(errno));
@@ -1611,7 +1658,7 @@ void DB::add(const char* name /* might be NULL */) {
     if (e.login.empty())
       e.default_login = getyn("use default username ("+e.the_default_login+") ? [n] ", false);
 
-    e.password = enter_password("password: ", "password again: ");
+    e.password = enter_password("password [return for random]: ", "password again: ");
  
     e.notes = gettxt("notes: ");
  
@@ -1642,7 +1689,7 @@ void DB::edit(const char* regex) {
 
     while (true) {
       if (getyn("change password ? [N] ", false)) {
-        secstring new_pw = enter_password("new password: ", "new password again: ");
+        secstring new_pw = enter_password("new password: [return for random]", "new password again: ");
         if (new_pw.empty() && !e.password.empty()) {
           if (!getyn("Confirm changing to an empty password ? [n] "))
             continue;
@@ -1962,3 +2009,93 @@ bool DB::Entry::write(FILE* f, DB::Context& c, const secstring& str) {
 }
 
 
+// ---- secalloc class ---------------------------------------
+
+secalloc::Pool* secalloc::pools = NULL;
+const size_t secalloc::pagesize = sysconf(_SC_PAGESIZE);
+
+secalloc::Pool::Pool(size_t n) : next(0), top(0), bottom(0), level(0) {
+  char*const z = 0;
+  const size_t pagesize = secalloc::pagesize;
+  char*const p = reinterpret_cast<char*>(malloc(pagesize+n+pagesize)); // make sure we get something that is page-aligned
+  if (!p) {
+    fprintf(stderr, "Out of memory\n");
+    throw FailEx();
+  }
+  bottom = p;
+  level = z + ((bottom-z+pagesize-1) & ~(pagesize-1)); // round bottom up to a page boundary
+  top = z + ((bottom-z+pagesize+n+pagesize) & ~(pagesize-1)); // round top down to a page boundary
+
+  // mark level..top as non-swapabble
+  int rc = mlock(level,top-level);
+  if (rc && errno == EPERM && (saved_uid != geteuid() || saved_gid != getegid())) {
+    // try again as root (or whoever saved_uid really is)
+    if (saved_uid != geteuid()) 
+      seteuid(saved_uid);
+    if (saved_gid != getegid())
+      setegid(saved_gid);
+    rc = mlock(level,top-level);
+    setegid(getgid());
+    seteuid(getuid());
+  }
+  if (rc) {
+    static bool reported = false;
+    if (!reported) {
+      fprintf(stderr, "WARNING: %s unable to use secure ram (need to be setuid root)\n", program_name);
+      reported = true;
+    }
+  }
+}
+
+secalloc::Pool::~Pool() {
+  char*const z = 0;
+  const size_t pagesize = secalloc::pagesize;
+  memset(bottom, 0, top-bottom); // clear it once more, just in case everything wasn't properly deallocate()ed
+  char*const l = z + ((bottom-z+pagesize-1) & ~(pagesize-1)); // recalculate original value we passed to mlock()
+  munlock(l, top-l); // might fail; that's ok if it does
+  free(bottom);
+}
+
+secalloc::secalloc(size_t n) {
+  if (pagesize == (size_t)-1) {
+    fprintf(stderr, "ERROR: %s can't compute kernel MMU page size\n", program_name);
+    throw FailEx();
+  }
+
+  if (n)
+    pools = new Pool(n);
+}
+
+void secalloc::cleanup() {
+  while (pools) {
+    Pool* p = pools;
+    pools = p->next;
+    delete p;
+  }
+}
+
+void* secalloc::allocate(size_t n) {
+  if (!pools || pools->top - pools->level < n) {
+    // need a new pool
+    Pool* p = new Pool(std::max(n, static_cast<size_t>(0*pagesize)));
+    p->next = pools;
+    pools = p;
+  }
+
+  void* p = pools->level;
+  pools->level += n;
+  return p;
+}
+
+void secalloc::deallocate(void* p, size_t n) {
+  memset(p,0,n);
+}
+
+void* secalloc::reallocate(void* p, size_t old_n, size_t new_n) {
+  void* new_p = allocate(new_n);
+  memcpy(new_p, p, std::min(old_n, new_n));
+  deallocate(p, old_n);
+  return new_p;
+}
+
+ 
