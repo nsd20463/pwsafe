@@ -23,8 +23,11 @@ case $1 in
   recompile)
     # upload and recompile on each of the sourceforge compile farm servers
     TGZ=pwsafe.tgz
+    if [ -z "$SF_USER" ]; then
+      SF_USER=`echo $USER|tr -d -`
+    fi
     tar czvf /tmp/$TGZ . --exclude '*.o' --exclude pwsafe 
-    scp /tmp/$TGZ ndade@cf-shell.sourceforge.net:$TGZ
+    scp /tmp/$TGZ $SF_USER@cf-shell.sourceforge.net:$TGZ
     rm /tmp/$TGZ
 
     # some hosts need custom stuff passed in to ./configure
@@ -36,10 +39,9 @@ case $1 in
     x86_netbsd1_make=gmake
     x86_openbsd1_make=gmake
  
-    # sparc-solaris2 and x86-openbsd1 appear to be down
-    for host in alpha-linux1 amd64-linux1 ppc-osx1 ppc-osx2 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1; do
+    for host in alpha-linux1 amd64-linux1 ppc-osx1 ppc-osx2 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1 x86-openbsd1; do
       echo "==== $host ========================================================================="
-      RSH="ssh -l`echo $USER|tr -d -` cf-shell.sourceforge.net ssh $host"
+      RSH="ssh $SF_USER@cf-shell.sourceforge.net ssh $host"
       DIR=$host
       CONF="`echo $host|tr -- - _`_conf"
       MAKE="`echo $host|tr -- - _`_make"
