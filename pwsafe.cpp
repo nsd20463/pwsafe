@@ -70,6 +70,7 @@
 
 #include <string>
 #include <map>
+#include <set>
 #include <vector>
 #include <algorithm>
 #include <memory>
@@ -154,8 +155,9 @@ FILE* agent_fsock = NULL;
 // Option flags and variables
 const char* arg_dbname = NULL;
 const char* arg_name = NULL;
-enum OP { OP_NOP, OP_CREATEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_AGENT };
+enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_AGENT };
 OP arg_op = OP_NOP;
+//const char* arg_config = NULL;
 bool arg_casesensative = false;
 bool arg_echo = false;
 const char* arg_output = NULL;
@@ -171,6 +173,7 @@ bool arg_kill = false;
 bool arg_xclip = false;
 const char* arg_display = NULL;
 const char* arg_selection = "both"; // by default copy to primary X selection and clipboard
+std::set<std::string> arg_ignore;
 static Display* xdisplay = NULL;
 #endif
 
@@ -178,6 +181,7 @@ static long_option const long_options[] =
 {
   // commands
   {"createdb", no_argument, 0, 'C'},
+  {"exportdb", no_argument, 0, 'E'&31},
   {"passwd", no_argument, 0, 'P'},
   {"list", no_argument, 0, 'L'},
   {"add", no_argument, 0, 'a'},
@@ -185,6 +189,7 @@ static long_option const long_options[] =
   {"delete", no_argument, 0, 'D'},
   {"agent", no_argument, 0, 'A'},
   // options
+//  {"config", required_argument, 0, 'F'},
   {"file", required_argument, 0, 'f'},
   {"case", no_argument, 0 ,'I'},
   // options controlling what is outputted
@@ -198,6 +203,7 @@ static long_option const long_options[] =
   {"xclip", no_argument, 0, 'x'},
   {"display", required_argument, 0,'d'},
   {"selection", required_argument, 0,'s'},
+  {"ignore", required_argument, 0,'G'},
 #endif
   // options for agent
   {"csh", no_argument, 0,'C'&31}, // ctrl-c
@@ -388,6 +394,7 @@ public:
   ~DB();
 
   static void createdb(const char* dbname);
+  void exportdb();
   void passwd();
   void list(const char* regex);
   void emit(const char* regex, bool username, bool password);
@@ -463,6 +470,14 @@ int main(int argc, char **argv) {
 
       int idx = parse(argc, argv);
    
+#ifndef X_DISPLAY_MISSING
+      // if no --ignore was specified, use the default
+      if (arg_ignore.empty()) {
+        arg_ignore.insert("xclipboard");
+        arg_ignore.insert("klipper");
+      }
+#endif
+      
       if (arg_op == OP_NOP)
         // assume --list
         arg_op = OP_LIST;
@@ -508,7 +523,7 @@ int main(int argc, char **argv) {
       }
 #endif
 
-      // jimmy around stdout and outfile so they are intelligently selected
+      // mess around stdout and outfile so they are intelligently selected
       // what we want is usages like "pwsafe | less" to work correctly
       if (arg_output) {
         outfile = fopen(arg_output,"w");
@@ -596,6 +611,7 @@ int main(int argc, char **argv) {
       case OP_CREATEDB:
         DB::createdb(arg_dbname);
         break;
+      case OP_EXPORTDB:
       case OP_PASSWD:
       case OP_LIST:
       case OP_EMIT:
@@ -606,6 +622,9 @@ int main(int argc, char **argv) {
           DB db(arg_dbname);
           try {
             switch (arg_op) {
+            case OP_EXPORTDB:
+              db.exportdb();
+              break;
             case OP_PASSWD:
               db.passwd();
               break;
@@ -796,6 +815,7 @@ static int parse(int argc, char **argv) {
           "l"   // long listing
           "a"   // add
           "e"   // edit
+//          "F:"  // config
           "f:"  // file
           "I"   // case sensative
           "E"   // echo
@@ -806,6 +826,7 @@ static int parse(int argc, char **argv) {
           "x"   // xclip
           "d:"  // display
           "s:"  // x selection
+          "G:"  // ignore
 #endif
           "k"   // kill
           "v"   // verbose
@@ -818,6 +839,12 @@ static int parse(int argc, char **argv) {
       case 'C':
         if (arg_op == OP_NOP)
           arg_op = OP_CREATEDB;
+        else
+          usage(true);
+        break;
+      case 'E'&31:
+        if (arg_op == OP_NOP)
+          arg_op = OP_EXPORTDB;
         else
           usage(true);
         break;
@@ -868,6 +895,9 @@ static int parse(int argc, char **argv) {
           usage(true);
         break;
         break;
+//      case 'F':
+//        arg_config = optarg;
+//        break;
       case 'f':
         arg_dbname = optarg;
         break;
@@ -907,6 +937,9 @@ static int parse(int argc, char **argv) {
       case 'x':
         arg_xclip = true; arg_echo = false;
         break;
+      case 'G':
+        arg_ignore.insert(optarg);
+        break;
 #endif
       case 'v':
         arg_verbose++;
@@ -941,6 +974,7 @@ static void usage(bool fail) {
   fprintf(fail?stderr:stdout,"Usage: %s [OPTION] command [ARG]\n", program_name);
   fprintf(fail?stderr:stdout,
         "Options:\n"
+//        "  -F, --config=CONFIG_FILE   specify a configuration (defaults is ~/.pwsaferc + /etc/pwsaferc)\n"
         "  -f, --file=DATABASE_FILE   specify the database file (default is ~/.pwsafe.dat)\n"
         "  -I, --case                 perform case sensative matching\n"
         "  -l                         long listing (show usename & notes)\n"
@@ -952,6 +986,7 @@ static void usage(bool fail) {
         "  -x, --xclip                force copying of entry to X selection\n"
         "  -d, --display=XDISPLAY     override $DISPLAY (implies -x)\n"
         "  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x)\n"
+        "  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard and klipper)\n"
 #endif
         "  --csh                      emit csh commands\n"
         "  -v, --verbose              print more information (can be repeated)\n"
@@ -959,6 +994,7 @@ static void usage(bool fail) {
         "  -V, --version              output version information and exit\n"
         "Commands:\n"
         "  --createdb                 create an empty database\n"
+        "  --exportdb                 dump database as text\n"
         "  --passwd                   change database passphrase\n"
         "  [--list] [REGEX]           list all [matching] entries. If -u and/or -p are given, only one entry may match\n"
         "  -a, --add [NAME]           add an entry\n"
@@ -1359,9 +1395,6 @@ static void emit(const secstring& name, const char*const what, const secstring& 
         }
       }
 
-      // in order to filter out programs that automatically grab a copy of any selection (like klipper or xclipboard), we
-      // put up a dummy selection and keep track of who grabs it
-#warning implement_this
       while (XPending(xdisplay) > 0) {
         XEvent xev;
         XNextEvent(xdisplay,&xev);
@@ -1422,53 +1455,65 @@ static void emit(const secstring& name, const char*const what, const secstring& 
             }
             else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
                 xev.xselectionrequest.target == XA_STRING) {
-              if (/*arg_verbose &&*/ xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
-                // be very verbose about who is asking for the selection---it could catch a clipboard sniffer
-                const char*const selection = xev.xselectionrequest.selection == xsel1 ? stxt1 : stxt2; // we know xselectionrequest.selection is xsel1 or xsel2 already, so no need to be more paranoid
+              // be very verbose about who is asking for the selection---it could catch a clipboard sniffer
+              const char*const selection = xev.xselectionrequest.selection == xsel1 ? stxt1 : stxt2; // we know xselectionrequest.selection is xsel1 or xsel2 already, so no need to be more paranoid
 
-                // walk up the tree looking for a client window
-                Window w = xev.xselectionrequest.requestor;
-                while (true) {
-                  XTextProperty tp = { value: NULL };
-                  int rc = XGetTextProperty(xdisplay, w, &tp, XA_WM_COMMAND);
+              // walk up the tree looking for a client window
+              Window w = xev.xselectionrequest.requestor;
+              while (true) {
+                XTextProperty tp = { value: NULL };
+                int rc = XGetTextProperty(xdisplay, w, &tp, XA_WM_COMMAND);
+                if (tp.value) XFree(tp.value), tp.value = NULL;
+                if (!rc) {
+                  rc = XGetWMName(xdisplay, w, &tp);
                   if (tp.value) XFree(tp.value), tp.value = NULL;
-                  if (!rc) {
-                    rc = XGetWMName(xdisplay, w, &tp);
-                    if (tp.value) XFree(tp.value), tp.value = NULL;
-                  }
-                  if (rc)
-                    break;
-                  Window p = XmuClientWindow(xdisplay, w);
-                  if (w != p)
-                    break; // this means we've found it
-                  Window parent;
-                  Window root;
-                  Window* children = NULL;
-                  unsigned int numchildren;
-                  if (XQueryTree(xdisplay, w, &root, &parent, &children, &numchildren) && children) // unfortunately you can't pass in NULLs to indicate you don't care about the children
-                    XFree(children);
-                  if (parent == root)
-                    break; // we shouldn't go any further or we will read the properties of the root
-                  w = parent;
                 }
-
-                const char* requestor = "<unknown>";
-                XTextProperty nm = { value: NULL };
-                if ((XGetWMName(xdisplay, w, &nm) && nm.encoding == XA_STRING && nm.format == 8 && nm.value) ||
-                    (((nm.value?(XFree(nm.value),nm.value=NULL):0), XGetTextProperty(xdisplay, w, &nm, XA_WM_COMMAND)) && nm.encoding == XA_STRING && nm.format == 8 && nm.value)) // try getting WM_COMMAND if we can't get WM_NAME
-                  requestor = reinterpret_cast<const char*>(nm.value);
-      
-                const char* host = "<unknown>";
-                XTextProperty cm = { value: NULL };
-                if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
-                  host = reinterpret_cast<const char*>(cm.value);
-     
-                printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
-
-                if (nm.value) XFree(nm.value);
-                if (cm.value) XFree(cm.value);
+                if (rc)
+                  break;
+                Window p = XmuClientWindow(xdisplay, w);
+                if (w != p)
+                  break; // this means we've found it
+                Window parent;
+                Window root;
+                Window* children = NULL;
+                unsigned int numchildren;
+                if (XQueryTree(xdisplay, w, &root, &parent, &children, &numchildren) && children) // unfortunately you can't pass in NULLs to indicate you don't care about the children
+                  XFree(children);
+                if (parent == root)
+                  break; // we shouldn't go any further or we will read the properties of the root
+                w = parent;
               }
-              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
+
+              const char* requestor = "<unknown>";
+              XTextProperty nm = { value: NULL };
+              if ((XGetWMName(xdisplay, w, &nm) && nm.encoding == XA_STRING && nm.format == 8 && nm.value) ||
+                  (((nm.value?(XFree(nm.value),nm.value=NULL):0), XGetTextProperty(xdisplay, w, &nm, XA_WM_COMMAND)) && nm.encoding == XA_STRING && nm.format == 8 && nm.value)) // try getting WM_COMMAND if we can't get WM_NAME
+                requestor = reinterpret_cast<const char*>(nm.value);
+
+              const char* host = "<unknown>";
+              XTextProperty cm = { value: NULL };
+              if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
+                host = reinterpret_cast<const char*>(cm.value);
+
+              if (arg_ignore.find(requestor) != arg_ignore.end() ||
+                  arg_ignore.find(std::string("@")+host) != arg_ignore.end() ||
+                  arg_ignore.find(requestor+std::string("@")+host) != arg_ignore.end()) {
+                fakeout = true;
+              }
+
+              if (xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
+                if (!fakeout)
+                  printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
+                else if (arg_verbose) 
+                  printf("Ignoring request from %s@%s\n", requestor, host);
+              }
+
+              if (nm.value) XFree(nm.value);
+              if (cm.value) XFree(cm.value);
+
+              if (!fakeout) 
+                XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
+
               prevprev_requestor = prev_requestor;
               prev_requestor = xev.xselectionrequest.requestor;
             }
@@ -1636,6 +1681,46 @@ void DB::createdb(const char* dbname) {
 
   DB db(dbname);
   if (!(db.header->create() && db.getkey(false) && db.save()))
+    throw FailEx();
+}
+
+static secstring xmlescape(const secstring& s) {
+  // escape any non-xml characters and enclose the whole string in ""
+  secstring out;
+
+  out += '"';
+
+  for (secstring::const_iterator i=s.begin(); i!=s.end(); ++i) {
+    const unsigned char c = *i;
+    if (c<' ' || c==0x7f) {
+      // control character; emit in octal
+      char buf[10];
+      snprintf(buf,sizeof(buf),"\\%03o",c);
+      out += buf;
+      memset(buf,0,sizeof(buf));
+    } else switch (c) {
+      case '"': out += "&quot;"; break;
+      case '&': out += "&amp;"; break;
+      case '<': out += "&lt;"; break;
+      case '>': out += "&gt"; break;
+      case '\\': out += "\\\\"; break;
+      default: out += c;
+    }
+  }
+
+  out += '"';
+  return out;
+}
+  
+void DB::exportdb() {
+  matches_t matches;
+  if (open()) {
+    fprintf(outfile,"%s\t%s\t%s\t%s\n", "name", "login", "passwd", "notes");
+    for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
+      const Entry& e = i->second;
+      fprintf(outfile,"%s\t%s\t%s\t%s\n", xmlescape(e.name).c_str(), xmlescape(!e.default_login?e.login:"[default]").c_str(), xmlescape(e.password).c_str(), xmlescape(e.notes).c_str());
+    }
+  } else
     throw FailEx();
 }
 

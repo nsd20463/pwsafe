@@ -1,3 +1,9 @@
+2004-10-02  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+  
+	* pwsafe: added -G/--ignore with default value {klipper,
+	  xclipboard}
+	* pwsafe: added --exportdb
+
 2004-03-01  Nicolas S. Dade  <ndade@nsd.dyndns.org>
     
         * pwsafe: first try case sensative perfect match.
