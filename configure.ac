@@ -130,11 +130,11 @@ dnl Checks for typedefs, structures, and compiler characteristics.
 
 dnl MacOSX, for example, does not define socklen_t
 AC_CHECK_TYPE(socklen_t,[AC_DEFINE(HAVE_SOCKLEN_T, 1, [Define to 1 if the type socklen_t exists])],,[
-#if HAVE_SYS_SOCKET_H
-#include <sys/socket.h>
-#endif
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
+#endif
+#if HAVE_SYS_SOCKET_H
+#include <sys/socket.h>
 #endif
  ])
 
