@@ -14,6 +14,7 @@
         * pwsafe: implemented randomly chosen passwords.
         * pwsafe: fixed char-at-a-time (~ICANON) buffering
           on sparc.
+        * pwsafe: release 0.1.2
  
 2004-01-23  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
