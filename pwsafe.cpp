@@ -152,8 +152,12 @@ pid_t agent_pid = 0;
 int agent_sock = -1;
 FILE* agent_fsock = NULL;
 
+// database version
+enum Version { VERSION_UNKNOWN, VERSION_1_9, VERSION_2_0 };
+
 // Option flags and variables
 const char* arg_dbname = NULL;
+Version arg_dbversion = VERSION_UNKNOWN;
 const char* arg_name = NULL;
 enum OP { OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, OP_AGENT };
 OP arg_op = OP_NOP;
@@ -199,6 +203,7 @@ static long_option const long_options[] =
   // options controlling where output goes
   {"echo", no_argument, 0, 'E'},
   {"output", required_argument, 0, 'o'},
+  {"dbversion", required_argument, 0, 'V'&31},
 #ifndef X_DISPLAY_MISSING
   {"xclip", no_argument, 0, 'x'},
   {"display", required_argument, 0,'d'},
@@ -284,7 +289,6 @@ static inline bool getyn(const secstring& prompt, int dev_val=-1) { return getyn
 struct FailEx {}; // thrown to unwind, cleanup and cause main to return 1
 struct ExitEx { const int rc; explicit ExitEx(int c) : rc(c) {} }; // thrown to unwind and exit() with rc
 
-
 // a blowfish data block (8 bytes)
 class Block {
 private:
@@ -296,8 +300,9 @@ public:
   ~Block();
   void zero();
 
+  void putInt32AndType(int32_t, uint8_t);
   int32_t getInt32() const;
-  void putInt32(int32_t);
+  uint8_t getType() const;
 
   Block& operator ^=(const Block&);
 
@@ -336,8 +341,9 @@ private:
   struct Context {
     Block cbc;
     BF_KEY bf;
+    const Version& version; // typically points back to DB's Version
 
-    Context(const Header&, const secstring& pw);
+    Context(const Header&, const secstring& pw, const Version&);
     ~Context();
 
     // overload new and delete so Context is kept in secalloc's memory
@@ -349,19 +355,30 @@ private:
   private:
     // the name+login fields are saved as one string in the file for historical reasons (login was added after 1.0), seperated by magic characters we hope you won't use in a name
     const static char SPLIT_CHAR = '\xAD';
-    const static char*const SPLIT_STR;// = "  \xAD  ";
+    const static char*const SPLIT_STR; // = "  \xAD  "
     const static char DEFAULT_USER_CHAR = '\xA0';
- 
-    static bool read(FILE*, Context&, secstring&);
-    static bool write(FILE*, Context&, const secstring&);
+  
+    // version 2 field types
+    enum Type { NAME=0, UUID=0x1, GROUP = 0x2, TITLE = 0x3, USER = 0x4, NOTES = 0x5, PASSWORD = 0x6, 
+         // future fields: CTIME = 0x7, MTIME = 0x8, ATIME = 0x9, LTIME = 0xa, POLICY = 0xb, 
+                END = 0xff};
+
+    static bool read(FILE*, Context&, Type&, secstring&);
+    static bool write(FILE*, Context&, Type, const secstring&);
 
   public:
+    const static char*const MAGIC_V2_NAME; // = " !!!Version 2 File Format!!! ..."
+    const static char*const MAGIC_V2_PASSWORD; // = "2.0"
+
     static secstring the_default_login;
     secstring name;
     secstring login;
     bool default_login;
     secstring password;
     secstring notes;
+    // new v2.0 values
+    secstring uuid; // I exploit the fact that std::string can contain '\0'
+    secstring group;
 
     static void Init(); // computes the_default_login
     Entry();
@@ -375,11 +392,13 @@ private:
   typedef std::vector<const Entry*> matches_t;
 
   secstring passphrase;
+  Version version;
+  secstring v2_preferences;
   bool opened; // true after open() has succeeded
   bool changed; // unsaved changes have been made
   bool backedup; // true after backup() has succeeded
   bool overwritten; // true once we start overwriting dbname
-
+  
   bool getkey(bool test, const char* prompt1="Enter passphrase", const char* prompt2="Reenter passphrase"); // get/verify passphrase
   bool open(); // call getkey(), read file into entries map
 
@@ -390,7 +409,7 @@ public:
   const char*const dbname;
 
   static void Init();
-  DB(const char* dbname);
+  DB(const char* dbname, Version=VERSION_UNKNOWN);
   ~DB();
 
   static void createdb(const char* dbname);
@@ -911,6 +930,13 @@ static int parse(int argc, char **argv) {
         } else
           usage(true);
         break;
+      case 'V'&31:
+        switch (strtol(optarg, 0, 10)) {
+          case 1: arg_dbversion = VERSION_1_9; break;
+          case 2: arg_dbversion = VERSION_2_0; break;
+          default: usage(true);
+        }
+        break;
       case 'o':
         arg_output = optarg;
         // fall through into 'E' since -o implies -e
@@ -982,6 +1008,7 @@ static void usage(bool fail) {
         "  -p, --password             emit password of listed account\n"
         "  -E, --echo                 force echoing of entry to stdout\n"
         "  -o, --output=FILE          redirect output to file (implies -E)\n"
+        "  --dbversion=[1|2]            specify database file version (default is 2)\n"
 #ifndef X_DISPLAY_MISSING
         "  -x, --xclip                force copying of entry to X selection\n"
         "  -d, --display=XDISPLAY     override $DISPLAY (implies -x)\n"
@@ -1615,13 +1642,17 @@ Block& Block::operator ^=(const Block& b) {
   return *this;
 }
 
-void Block::putInt32(int32_t x) {
+void Block::putInt32AndType(int32_t x, uint8_t t) {
   block[0] = x;
-  block[1] = 0;
+  block[1] = t; // because we are always byte-ordered correctly, we can just do this
 }
 
 int32_t Block::getInt32() const {
   return block[0]; // because we are always byte-ordered correctly, we can just do this
+}
+
+uint8_t Block::getType() const {
+  return block[1] & 0xff; // because we are always byte-ordered correctly, we can just do this
 }
 
 void Block::read(const unsigned char* data, int len) {
@@ -1659,8 +1690,9 @@ void DB::Init() {
   Entry::Init();
 }
 
-DB::DB(const char* n) : 
-  dbname_str(n), dbname(dbname_str.c_str()), opened(false), changed(false), backedup(false), overwritten(false)
+DB::DB(const char* n, Version v) : 
+  dbname_str(n), dbname(dbname_str.c_str()), version(v), 
+  opened(false), changed(false), backedup(false), overwritten(false)
 {
   header = new Header();
 }
@@ -1679,7 +1711,7 @@ void DB::createdb(const char* dbname) {
     throw FailEx();
   }
 
-  DB db(dbname);
+  DB db(dbname, arg_dbversion);
   if (!(db.header->create() && db.getkey(false) && db.save()))
     throw FailEx();
 }
@@ -1687,6 +1719,7 @@ void DB::createdb(const char* dbname) {
 static secstring xmlescape(const secstring& s) {
   // escape any non-xml characters and enclose the whole string in ""
   secstring out;
+  out.reserve(s.length());
 
   out += '"';
 
@@ -1824,13 +1857,23 @@ bool DB::open() {
  
   if (getkey(true)) {
     // load the rest of the file
-    Context*const ctxt = new Context(*header, passphrase); // so context resides in secure memory
+    Context*const ctxt = new Context(*header, passphrase, version); // so context resides in secure memory
     try {
       errno = 0; // because successfull reads don't clear errno but it might be non-zero due to earlier failures (like backup file not existing)
       while (!feof(file)) {
         Entry e;
         if (e.read(file,*ctxt)) {
-          entries.insert(entries_t::value_type(e.name,e));
+          // version 2 files are destinguished by a magic starting entry
+          bool skip = false;
+          if (version == VERSION_UNKNOWN) {
+            version = (e.name == e.MAGIC_V2_NAME /* password save 2.05 does not check e.password, so I don't either && e.password == "2.0"*/) ? VERSION_2_0 : VERSION_1_9;
+            if (arg_verbose) printf("loading version %d database\n", static_cast<int>(version));
+            if (version == VERSION_2_0) {
+              v2_preferences = e.notes; // save preferences away so we can rewrite them when saving the file
+              skip = true;
+            }
+          }
+          if (!skip) entries.insert(entries_t::value_type(e.name,e));
         } else {
           if (errno || !feof(file)) {
             delete ctxt;
@@ -1942,6 +1985,13 @@ bool DB::restore() {
 bool DB::save() {
   if (arg_verbose) printf("writing %s\n", dbname);
 
+  Version saveversion = (arg_dbversion != VERSION_UNKNOWN ? arg_dbversion : version); // if the user specifies a dbversion then we convert
+  if (saveversion != version) {
+    if (!getyn(std::string("Confirm overwriting ")+dbname+" with a version "+(saveversion==VERSION_1_9?"1.9":"2.0")+" database file ? ")) {
+      return false;
+    }
+  }
+
   // we use a new salt and IV every time we save
   if (!header->resalt())
     return false;
@@ -1960,8 +2010,18 @@ bool DB::save() {
     return false;
   }
 
-  Context*const ctxt = new Context(*header, passphrase);
+  Context*const ctxt = new Context(*header, passphrase, saveversion);
   try {
+    if (saveversion == VERSION_2_0) {
+      // write the magic entry
+      Entry e;
+      e.name = Entry::MAGIC_V2_NAME;
+      e.password = Entry::MAGIC_V2_PASSWORD;
+      e.notes = v2_preferences;
+      saveversion = VERSION_1_9; // temporarily true, since first entry is always written in v1.9 style
+      e.write(f,*ctxt);
+      saveversion = VERSION_2_0;
+    }
     for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); i++) {
       if (!i->second.write(f,*ctxt)) {
         delete ctxt;
@@ -2071,6 +2131,11 @@ void DB::list(const char* regex /* might be NULL */) {
   if (open() && find(matches, regex)) {
     for (matches_t::const_iterator i=matches.begin(); i!=matches.end(); ++i) {
       const Entry& e = **i;
+    
+      // prefix the name with the group, if it exists
+      if (!e.group.empty())
+        fprintf(outfile,"%s.", e.group.c_str());
+        
       if (arg_details) {
         // print out the name
         fprintf(outfile,"%s", e.name.c_str());
@@ -2100,6 +2165,17 @@ void DB::list(const char* regex /* might be NULL */) {
             p = q;
           }
         }
+      }
+
+      if (!e.uuid.empty() && arg_details && arg_verbose) {
+        // print out the UUID too
+        unsigned char uuid_array[16];
+        memcpy(uuid_array, e.uuid.c_str(), sizeof(uuid_array));
+        fprintf(outfile,"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n",
+                uuid_array[0], uuid_array[1], uuid_array[2], uuid_array[3],
+                uuid_array[4], uuid_array[5], uuid_array[6], uuid_array[7],
+                uuid_array[8], uuid_array[9], uuid_array[10], uuid_array[11],
+                uuid_array[12], uuid_array[13], uuid_array[14], uuid_array[15]);
       }
     }
   }
@@ -2178,6 +2254,9 @@ void DB::edit(const char* regex) {
         break;
       printf("%s already exists\n", e.name.c_str());
     }
+
+    if (version != VERSION_1_9)
+    e.group = gettxt("group: ["+e_orig.group+"] ", e_orig.group);
  
     if (e.default_login)
       e.default_login = getyn("keep default username ("+e_orig.the_default_login+") ? [y]", true);
@@ -2186,6 +2265,7 @@ void DB::edit(const char* regex) {
       if (e.login.empty() && !e_orig.default_login) // no point in asking if they just disabled default login
         e.default_login = getyn("use default username ("+e_orig.the_default_login+") ? [n]", false);
     }
+
 
     while (true) {
       if (getyn("change password ? [n] ", false)) {
@@ -2205,6 +2285,7 @@ void DB::edit(const char* regex) {
       typedef std::vector<std::string> changes_t;
       changes_t changes;
       
+      if (e_orig.group != e.group) changes.push_back("group");
       if (e_orig.name != e.name) changes.push_back("name");
       if (e_orig.default_login != e.default_login || 
           (!e_orig.default_login && !e.default_login && e_orig.login != e.login))
@@ -2308,7 +2389,9 @@ bool DB::Header::write(FILE* f) const {
 
 // ----- DB::Context class --------------------------------------------
 
-DB::Context::Context(const Header& h, const secstring& pw) {
+DB::Context::Context(const Header& h, const secstring& pw, const Version& v) :
+  version(v)
+{
   cbc.read(h.iv,sizeof(h.iv));
   SHA_CTX sha;
   SHA1_Init(&sha);
@@ -2328,6 +2411,10 @@ DB::Context::~Context() {
 // ----- DB::Entry class ----------------------------------------------
 
 const char*const DB::Entry::SPLIT_STR = "  \xAD  ";
+const char*const DB::Entry::MAGIC_V2_NAME = " !!!Version 2 File Format!!! "
+                                                   "Please upgrade to PasswordSafe 2.0"
+                                                   " or later";
+const char*const DB::Entry::MAGIC_V2_PASSWORD = "2.0";
 
 secstring DB::Entry::the_default_login;
 
@@ -2357,7 +2444,9 @@ DB::Entry::Entry() : default_login(false) {
 }
 
 bool DB::Entry::operator!=(const Entry& e) const {
-  return name != e.name ||
+  return group != e.group ||
+    uuid != e.uuid ||
+    name != e.name ||
     default_login != e.default_login ||
     (!default_login && !e.default_login && login != e.login) ||
     password != e.password ||
@@ -2365,39 +2454,68 @@ bool DB::Entry::operator!=(const Entry& e) const {
 }
 
 bool DB::Entry::read(FILE* f, DB::Context& c) {
-  secstring name_login;
-  bool rc = read(f,c,name_login) &&
-    read(f,c,password) && 
-    read(f,c,notes);
-  if (rc) {
-    // split name_login if it contains the magic split char
-    secstring::size_type p = name_login.find(SPLIT_CHAR);
-    if (p != name_login.npos && p>0) {
-      name = name_login.substr(0,p);
-      login = name_login.substr(p+1,name_login.npos);
-    } else {
-      p = name_login.find(DEFAULT_USER_CHAR);
-      if (p != name_login.npos && p>0) {
-        // this entry uses the default login. this is not part of the database; instead it is part of the configuration, or in our case, $USER
-        name = name_login.substr(0,p);
-        login = the_default_login;
-        default_login = true;
-      } else {
-        // no magic split chars; assume this is a very old database that contains no login field
-        name = name_login;
+  bool rc = true;
+  Type type;
+  if (c.version == VERSION_2_0) {
+    int max_fields = 255;
+    do {
+      secstring s;
+      rc &= read(f,c,type,s);
+      if (rc) {
+        switch (type) {
+          case UUID: uuid=s; break;
+          case GROUP: group=s; break;
+          case TITLE: name=s; break;
+          case USER: login=s; break;
+          case NOTES: notes=s; break;
+          case PASSWORD: password=s; break;
+          case END: break;
+          default:
+            if (arg_verbose) printf("skipping field of type %u", static_cast<int>(type));
+        }
       }
+    } while (rc && type != END && --max_fields);
+    if (!max_fields) {
+      fprintf(stderr, "Too many fields in database entry. Is database corrupt?\n");
+      return false;
     }
-    // and trim any extra whitespace from name and login
-    p = name.find_last_not_of(' ');
-    if (p != name.npos)
-      name = name.substr(0,p+1);
-    p = login.find_first_not_of(' ');
-    if (p != login.npos)
-      login = login.substr(p,login.npos);
-
-    if (arg_verbose > 2)
-      printf("Read in entry %s\n", name.c_str());
+  } else {
+    // read a version 1.9 entry
+    secstring name_login;
+    rc = read(f,c,type,name_login) &&
+      read(f,c,type,password) && 
+      read(f,c,type,notes);
+    if (rc) {
+      // split name_login if it contains the magic split char
+      secstring::size_type p = name_login.find(SPLIT_CHAR);
+      if (p != name_login.npos && p>0) {
+        name = name_login.substr(0,p);
+        login = name_login.substr(p+1,name_login.npos);
+      } else {
+        p = name_login.find(DEFAULT_USER_CHAR);
+        if (p != name_login.npos && p>0) {
+          // this entry uses the default login. this is not part of the database; instead it is part of the configuration, or in our case, $USER
+          name = name_login.substr(0,p);
+          login = the_default_login;
+          default_login = true;
+        } else {
+          // no magic split chars; assume this is a very old database that contains no login field
+          name = name_login;
+        }
+      }
+      // and trim any extra whitespace from name and login
+      p = name.find_last_not_of(' ');
+      if (p != name.npos)
+        name = name.substr(0,p+1);
+      p = login.find_first_not_of(' ');
+      if (p != login.npos)
+        login = login.substr(p,login.npos);
+    }
   }
+
+  if (arg_verbose > 2 && rc)
+    printf("Read in entry %s\n", name.c_str());
+
   return rc;
 }
 
@@ -2411,22 +2529,47 @@ bool DB::Entry::write(FILE* f, DB::Context& c) const {
     return false;
   }
 
-  // here I follow the same wierd login as passwordsafe, including inserting extra spaces as well as the SPLIT_CHAR between name and login
-  // it doesnt look like anything depends on those spaces, but...
-  secstring name_login;
-  if (default_login) // this this first so that if the_default_login is "" we still get it right (so here I don't follow passwordsafe)
-    name_login = name + DEFAULT_USER_CHAR;
-  else if (login.empty())
-    name_login = name;
-  else
-    name_login = name + SPLIT_STR + login;
+  if (c.version == VERSION_2_0) {
+    secstring save_uuid = uuid;
+    if (uuid.empty()) {
+      // we must have read in a v1.9 file; create a uuid on the fly
+      // NOTE: instead of creating a per-rfc UUID which includes hardware-identificators like your 1st NIC's MAC address, 
+      // I make it completely random. I like this better, and given the size of the UUID collisions won't be a problem.
+      unsigned char buf[16];
+      if (!RAND_bytes(buf,sizeof(buf))) {
+        fprintf(stderr, "Can't get random data: %s\n", ERR_error_string(ERR_get_error(), NULL));
+        throw FailEx();
+      }
+      save_uuid.assign(reinterpret_cast<const char*>(buf),sizeof(buf));
+      memset(buf,0,sizeof(buf));
+    }
+    return write(f,c,UUID,save_uuid) &&
+      write(f,c,GROUP,group) &&
+      write(f,c,TITLE,name) &&
+      write(f,c,USER,login) &&
+      write(f,c,PASSWORD,password) &&
+      write(f,c,NOTES,notes) &&
+      write(f,c,END,"");
+  } else {
+    // here I follow the same wierd login encoding as passwordsafe 1.9, including inserting extra spaces as well as the SPLIT_CHAR between name and login
+    // it doesnt look like anything depends on those spaces, but...
+    secstring name_login;
+    if (!group.empty())
+      name_login = group + "."; // passwordsafe 2.0 prepends the v2.0 group when writing a v1.9 file, so I do it too
+    if (default_login) // this this first so that if the_default_login is "" we still get it right (so here I don't follow passwordsafe)
+      name_login += name + DEFAULT_USER_CHAR;
+    else if (login.empty())
+      name_login += name;
+    else
+      name_login += name + SPLIT_STR + login;
 
-  return write(f,c,name_login) &&
-    write(f,c,password) &&
-    write(f,c,notes);
+    return write(f,c,NAME,name_login) &&
+      write(f,c,PASSWORD,password) &&
+      write(f,c,NOTES,notes);
+  }
 }
 
-bool DB::Entry::read(FILE* f, DB::Context& c, secstring& str) {
+bool DB::Entry::read(FILE* f, DB::Context& c, Type& type, secstring& str) {
   str.erase();
   
   Block block;
@@ -2439,6 +2582,7 @@ bool DB::Entry::read(FILE* f, DB::Context& c, secstring& str) {
   c.cbc = copy;
 
   const int32_t len = block.getInt32();
+  type = static_cast<Type>(block.getType());
 
   block.zero();
   copy.zero();
@@ -2477,7 +2621,7 @@ bool DB::Entry::read(FILE* f, DB::Context& c, secstring& str) {
   return true;
 }
 
-bool DB::Entry::write(FILE* f, DB::Context& c, const secstring& str) {
+bool DB::Entry::write(FILE* f, DB::Context& c, Type type, const secstring& str) {
   const unsigned char*const data = reinterpret_cast<const unsigned char*>(str.data());
   
   int numblocks = (str.length()+8-1)/8;
@@ -2486,7 +2630,7 @@ bool DB::Entry::write(FILE* f, DB::Context& c, const secstring& str) {
 
   { // write the string's length
     Block block;
-    block.putInt32(str.length());
+    block.putInt32AndType(str.length(), (c.version == VERSION_2_0 ? type : 0));
     block ^= c.cbc;
     BF_encrypt(block, &c.bf);
     c.cbc = block;

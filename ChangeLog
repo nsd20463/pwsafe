@@ -3,6 +3,8 @@
 	* pwsafe: added -G/--ignore with default value {klipper,
 	  xclipboard}
 	* pwsafe: added --exportdb
+	  pwsafe: added --dbversion and support for pwsafe version 2.0
+	  databases
 
 2004-03-01  Nicolas S. Dade  <ndade@nsd.dyndns.org>
     

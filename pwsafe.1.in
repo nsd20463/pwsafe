@@ -36,7 +36,7 @@ pwsafe \- commandline password database utility compatible with Counterpane's Pa
 .SH "DESCRIPTION"
 \fBpwsafe\fP manipulates Counterpane Passwordsafe username/password databases.
 .PP 
-It is compatible with Counterpane Passwordsafe 1.9.x databases.
+It is compatible with Counterpane Passwordsafe 1.9.x and 2.0 databases.
 .SH "COMMANDS"
 \fBpwsafe\fP accepts the following commands:
 .TP 
@@ -67,6 +67,9 @@ Delete an entry from database.
 .TP 
 .B  \-f, \-\-file=DATABASE_FILE
 Specify the database to manipulate. Default is $HOME/.pwsafe.dat
+.TP 
+.B  \-\-dbversion=[1|2]
+Specify the database's version. Default is 2.
 .TP 
 .B  \-I, \-\-case
 REGEX is case\-sensative. Any uppercase character in REGEX implies \-\-case.
