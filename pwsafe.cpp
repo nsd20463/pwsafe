@@ -3216,14 +3216,18 @@ void* secalloc::reallocate(void* p, size_t old_n, size_t new_n) {
 #ifndef WITH_READLINE
 // a cheap function with the same api as the real readline()
 static char* readline(const char* prompt) {
-
   printf("%s", prompt);
   fflush(stdout);
   
-  int buflen = 100;
-  int bufpos = 0;
+  static secstring saved;
+  int buflen = saved.length() + 100;
+  int bufpos = saved.length();
   char* buf = reinterpret_cast<char*>(malloc(buflen+1));
-  while (buf) {
+  if (!buf)
+    throw FailEx();
+  memcpy(buf, saved.data(), saved.length());
+
+  while (!strchr(buf,'\n')) {
     const int rc = ::read(STDIN_FILENO, buf+bufpos, buflen);
 
     if (rc == -1) {
@@ -3235,7 +3239,7 @@ static char* readline(const char* prompt) {
 
     bufpos += rc;
 
-    if (bufpos == buflen && buf[bufpos-1] != '\n') {
+    if (bufpos == buflen && !strchr(buf,'\n')) {
       // we needed a bigger buffer
       char* new_buf = reinterpret_cast<char*>(malloc(2*buflen+1));
       if (!new_buf) {
@@ -3249,16 +3253,13 @@ static char* readline(const char* prompt) {
       free(buf);
       buf = new_buf;
       buflen *= 2;
-      continue;
-    }
-
-    if (rc >= 0) {
-      if (buf[bufpos-1] == '\n')
-        bufpos--;
-      buf[bufpos] = '\0';
-      return buf;
     }
   }
+
+  int len = strchr(buf,'\n') - buf;
+  saved.assign(buf+len+1, bufpos-(len+1));
+  buf[len] = '\0';
+  return buf;
 }
 #endif // WITH_READLINE
 
