@@ -12,6 +12,8 @@
         * pwsafe: implemented -e/--edit. (Renamed -e/--echo
           to -E/--echo.)
         * pwsafe: implemented randomly chosen passwords.
+        * pwsafe: fixed char-at-a-time (~ICANON) buffering
+          on sparc.
  
 2004-01-23  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
