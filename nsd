@@ -38,6 +38,7 @@ case $1 in
  
     # sparc-solaris2 and x86-openbsd1 appear to be down
     for host in alpha-linux1 amd64-linux1 ppc-osx1 ppc-osx2 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1; do
+      echo "==== $host ========================================================================="
       RSH="ssh -l`echo $USER|tr -d -` cf-shell.sourceforge.net ssh $host"
       DIR=$host
       CONF="`echo $host|tr -- - _`_conf"
