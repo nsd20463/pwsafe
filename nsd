@@ -23,7 +23,7 @@ case $1 in
   recompile)
     # upload and recompile on each of the sourceforge compile farm servers
     TGZ=pwsafe.tgz
-    tar czvf /tmp/$TGZ .
+    tar czvf /tmp/$TGZ . --exclude '*.o' --exclude pwsafe 
     scp /tmp/$TGZ ndade@cf-shell.sourceforge.net:$TGZ
     rm /tmp/$TGZ
 
