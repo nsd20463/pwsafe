@@ -22,8 +22,10 @@ HOW TO BUILD FROM CVS
 You'll need autoconf 2.5 or better, as well as the header files for X11,
 libreadline (which pulls in lib[n]curses) and openssl's libcrypto.
 
-So far I've only built it on various linuxes. According to others it
-builds on MacOS X.
+So far I've only built it on various linuxes (i386, sparc32, sparc64/debian
+stable, debian unstable, redhat 6.2).
+According to others it builds on MacOS X as well.
 
 
 	- Nicolas S. Dade <ndade@nsd.dyndns.org>
+
