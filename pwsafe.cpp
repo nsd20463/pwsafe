@@ -799,7 +799,7 @@ static secstring random_password() {
     char ent_buf[24];
     snprintf(ent_buf, sizeof(ent_buf), "%d", entropy_needed);
     ent_buf[sizeof(ent_buf)-1] = '\0';
-    switch (get1char("Use "+pw+"\ntype "+type_name+", "+ent_buf+" bits of entropy [y/N/ /l/m/q/?] ? ", 'n')) {
+    switch (get1char("Use "+pw+"\ntype "+type_name+", "+ent_buf+" bits of entropy [y/N/ /+/-/q/?] ? ", 'n')) {
       case 'y': case 'Y':
         return pw;
       case 'q': case 'Q':
@@ -829,6 +829,28 @@ static secstring random_password() {
     }
   }
 }
+
+static secstring enter_password(const char* prompt1, const char* prompt2) {
+  while (true) {
+    secstring pw1 = getpw(prompt1);
+    if (pw1.empty()) {
+      if (getyn("Generate random password? [y] ", true)) {
+        pw1 = random_password();
+        if (!pw1.empty())
+          return pw1;
+        else
+          continue; // back to entering by hand for them (perhaps they want to copy only a subset of the original pw)
+      } // else let them have an empty password, though they'll have to enter it twice
+    }
+    secstring pw2 = getpw(prompt2);
+    if (pw1 == pw2) {
+      return pw1;
+      break;
+    }
+    printf("Passwords do not match\n");
+  }
+}
+
 
 
 // print txt to outfile / copy to X selection
@@ -1549,25 +1571,8 @@ void DB::add(const char* name /* might be NULL */) {
     if (e.login.empty())
       e.default_login = getyn("use default username ("+e.the_default_login+") ? [n] ", false);
 
-    while (true) {
-      secstring pw1 = getpw("password: ");
-      if (pw1.empty()) {
-        if (getyn("Generate random password? [y] ", true)) {
-          e.password = random_password();
-          if (!e.password.empty())
-            break;
-          else
-            continue; // back to entering by hand for them (perhaps they want to copy only a subset of the original pw)
-        } // else let them have an empty password, though they'll have to enter it twice
-      }
-      secstring pw2 = getpw("password again: ");
-      if (pw1 == pw2) {
-        e.password = pw1;
-        break;
-      }
-      printf("Passwords do not match\n");
-    }
-          
+    e.password = enter_password("password: ", "password again: ");
+ 
     e.notes = gettxt("notes: ");
  
     entries.insert(entries_t::value_type(e.name,e));
@@ -1595,9 +1600,17 @@ void DB::edit(const char* regex) {
         e.default_login = getyn("user default username ("+e_orig.the_default_login+") ? [n]", false);
     }
 
-    secstring new_pw = getpw("password: [<keep same>] ");
-    if (!new_pw.empty())
-      e.password = new_pw;
+    while (true) {
+      if (getyn("change password ? [N] ", false)) {
+        secstring new_pw = enter_password("new password: ", "new password again: ");
+        if (new_pw.empty() && !e.password.empty()) {
+          if (!getyn("Confirm changing to an empty password ? [n] "))
+            continue;
+        }
+        e.password = new_pw;
+      }
+      break;
+    }
 
     e.notes = gettxt("notes: [<keep same>] ", e_orig.notes);
 
