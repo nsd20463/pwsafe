@@ -2,13 +2,17 @@
 
 HOW TO BUILD FROM SOURCE TARBALL
 
-   Nothing special here. Just the usual
    tar xzf <tarball>
    cd <dir>
    ./configure
    make
    make install
    
+And for the secure memory allocation to work, pwsafe must be install suid root
+
+   chown root:root %install_prefix%/bin/pwsafe
+   chmod +s %install_prefix%/bin/pwsafe
+
 
 HOW TO BUILD FROM CVS
 
