@@ -6,11 +6,11 @@ AC_PREREQ(2.5)
 AC_INIT(pwsafe.cpp)
 
 dnl Every other copy of the package version number gets its value from here
-dnl (Except the header in the pwsafe.1)
 AM_INIT_AUTOMAKE(pwsafe, 0.1.5)
 
 dnl create a config.h file (Automake will add -DHAVE_CONFIG_H)
 AM_CONFIG_HEADER(config.h)
+
 
 dnl --with-openssl-dir=dir
 AC_ARG_WITH(openssl-dir, AC_HELP_STRING([--with-openssl-dir=DIR], [indicate where openssl is installed (default=/usr)]),,)
@@ -22,20 +22,22 @@ if test -n "$with_openssl_dir" && test "$with_openssl_dir" != yes; then
   LDFLAGS="$LDFLAGS -L${with_openssl_dir}/lib"
 fi
 
+
 dnl --with-readline or without
 AC_ARG_WITH(readline, AC_HELP_STRING([--with-readline], [use readline for read input (default=yes)]),,with_readline=yes)
-AC_MSG_RESULT($with_readline)
 if test "$with_readline" != no; then
   AC_DEFINE(WITH_READLINE, 1, [Define to 1 to enable use of gnu libreadline for input])
 fi
 
+
 dnl --with-getopt_long or without
 dnl note: there is also a test to see if getopt_long exists. both it and this have to be true for it to be use
 AC_ARG_WITH(getopt_long, AC_HELP_STRING([--with-getopt_long], [use getopt_long to parse arguments (default=yes if available)]),,with_getopt_long=yes)
-AC_MSG_RESULT($with_getopt_long)
+
 
 dnl --enable-debug
 AC_ARG_ENABLE(debug, AC_HELP_STRING([--enable-debug], [compile in debug support (default=no)]),,)
+
 
 AC_SUBST(VERSION)
 
@@ -221,6 +223,6 @@ fi
 
 AC_SUBST(CXXFLAGS)
 
-AC_OUTPUT(Makefile pwsafe.lsm pwsafe.spec)
+AC_OUTPUT(Makefile pwsafe.1 pwsafe.lsm pwsafe.spec)
 
 

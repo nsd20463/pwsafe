@@ -25,7 +25,7 @@
 .\" .br        insert line break
 .\" .sp <n>    insert n+1 empty lines
 .\" for manpage-specific macros, see man(7)
-.TH "PWSAFE" "1" "0.1.5 February 21, 2004" "Nicolas S. Dade <ndade@nsd.dyndns.org>" ""
+.TH "PWSAFE" "1" "@VERSION@" "Nicolas S. Dade <ndade@nsd.dyndns.org>" ""
 .SH "NAME"
 pwsafe \- commandline password database utility compatible with Counterpane's Passwordsafe
 .SH "SYNOPSIS"
