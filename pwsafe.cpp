@@ -133,6 +133,10 @@ typedef struct option long_option;
 #include <X11/Xmu/WinUtil.h>
 #endif
 
+#ifndef HAVE_SOCKLEN_T
+typedef int socklen_t;
+#endif
+
 
 // The name the program was run with, stripped of any leading path
 const char *program_name = "pwsafe"; // make sure program_name always points to something valid so we can use it in constructors of globals
@@ -384,6 +388,8 @@ public:
   bool backup(); // create ~ file
   bool save(); // write out db file (please backup() first if appropriate)
   bool restore(); // copy ~ file back to original (only if an earlier call to backup() suceeded)
+  
+  static const secstring& defaultlogin() { return Entry::the_default_login; }
 };
 
 
@@ -596,7 +602,7 @@ int main(int argc, char **argv) {
           if (!tmp) tmp = "/tmp";
           std::string sockpath = tmp;
           sockpath += "/pwsafe-";
-          sockpath += DB::Entry::the_default_login.c_str();
+          sockpath += DB::defaultlogin().c_str();
 
           { // create the directory sockpath if it doesn't exist; check its mode if it does
             if (mkdir(sockpath.c_str(), 0700)) {
@@ -2501,11 +2507,11 @@ static void agent(const int sock, const std::string& sockname, const std::string
             }
           }
         }
-      }
 #else
-      // we can't test much about the client, so assume they are good if they could open the socket
-      agent_handle_client(s);
+        // we can't test much about the client, so assume they are good if they could open the socket
+        agent_handle_client(s);
 #endif
+      }
       close(s);
     } else if (errno != EINTR)
       break;

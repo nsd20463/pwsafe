@@ -95,6 +95,17 @@ AC_STRUCT_TM
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 
+dnl MacOSX, for example, does not define socklen_t
+AC_CHECK_TYPE(socklen_t,[AC_DEFINE(HAVE_SOCKLEN_T, 1, [Define to 1 if the type socklen_t exists])],,[
+#if HAVE_SYS_SOCKET_H
+#include <sys/socket.h>
+#endif
+#if HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+ ])
+
+
 dnl Checks for library functions.
 AM_SYS_POSIX_TERMIOS
 if test "$am_cv_sys_posix_termios" != yes; then
