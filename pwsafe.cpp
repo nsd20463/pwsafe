@@ -138,7 +138,7 @@ const char* arg_selection = "both"; // by default copy to primary X selection an
 static Display* xdisplay = NULL;
 #endif
 
-static struct long_option const long_options[] =
+static long_option const long_options[] =
 {
   // commands
   {"createdb", no_argument, 0, 'C'},
