@@ -38,13 +38,21 @@
 #if HAVE_SIGNAL_H
 #include <signal.h>
 #endif
+#if HAVE_GETOPT_H // freebsd for example doesn't have getopt.h but includes getopt() inside unistd.h
 #include <getopt.h>
+#endif
 #include <sys/types.h>
+#if HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
 #include <errno.h>
 #include <pwd.h>
 #include <regex.h>
 #include <sys/mman.h>
 #include <limits.h>
+#if HAVE_SYS_SELECT_H
+#include <sys/select.h>
+#endif
 
 
 #include <string>
@@ -1042,12 +1050,6 @@ static secstring enter_password(const char* prompt1, const char* prompt2) {
   }
 }
 
-#if 0 // !defined(X_DISPLAY_MISSING) && defined(HAVE_FCNTL_SETOWN_AND_ASYNC)
-static void sigio_handler(int) {
-  return;
-}
-#endif
-
 // print txt to outfile / copy to X selection
 static void emit(const secstring& name, const char*const what, const secstring& txt) {
   if (arg_echo) {
@@ -1090,12 +1092,10 @@ static void emit(const secstring& name, const char*const what, const secstring& 
       XSetWMProperties(xdisplay, xwin, &winname,NULL, const_cast<char**>(argv),1, NULL,NULL,NULL); // also init's WM_CLIENT_MACHINE
     }
 
-#if 0 // HAVE_FCNTL_SETOWN_AND_ASYNC
-    // allow input events on stdin to break us out of XNextEvent
-    void (*const prev_sigio)(int) = signal(SIGIO, sigio_handler);
-    const int stdin_flags = fcntl(STDIN_FILENO, F_GETFL);
-    fcntl(STDIN_FILENO, F_SETOWN, getpid());
-    fcntl(STDIN_FILENO, F_SETFL, stdin_flags|O_NONBLOCK|O_ASYNC);
+    Time timestamp = 0;
+    Window prev_requestor = 0, prevprev_requestor = 0;
+    const int xfd = ConnectionNumber(xdisplay);
+
     struct termios tio;
     tcgetattr(STDIN_FILENO, &tio);
     {
@@ -1106,187 +1106,207 @@ static void emit(const secstring& name, const char*const what, const secstring& 
       new_tio.c_cc[VTIME] = 0;
       tcsetattr(STDIN_FILENO, TCSANOW, &new_tio);
     }
-#endif
-      
-    Time timestamp = 0;
-    Window prev_requestor = 0, prevprev_requestor = 0;
+
     while (xsel1 || xsel2) {
-      
-      XEvent xev;
-      int rc = XNextEvent(xdisplay, &xev);
 
-      if (xev.type == PropertyNotify) {
-        if (!timestamp && xev.xproperty.window == xwin && xev.xproperty.state == PropertyNewValue && xev.xproperty.atom == XA_WM_COMMAND) {
-          timestamp = xev.xproperty.time; // save away the timestamp; that's all we really wanted
-          XSetSelectionOwner(xdisplay, xsel1, xwin, timestamp);
-          if (xsel2)
-            XSetSelectionOwner(xdisplay, xsel2, xwin, timestamp);
-          if (xsel2 && XGetSelectionOwner(xdisplay, xsel2) != xwin) {
-            fprintf(stderr, "Unable to own X selection %s\n", stxt2);
-            xsel2 = 0;
-            num_sel--;
-          }
-          if (XGetSelectionOwner(xdisplay, xsel1) != xwin) {
-            fprintf(stderr, "Unable to own X selection %s\n", stxt1);
-            xsel1 = xsel2;
-            if (stxt1) XFree(stxt1);
-            stxt1 = stxt2;
-            xsel2 = 0; stxt2 = NULL;
-            num_sel--;
-          }
-
-          // let the user know
-          if (arg_verbose>1) {
-            if (xsel1 && xsel2)
-              printf("X selections %s and %s contain %s for %s\n", stxt1, stxt2, what, name.c_str());
-            else if (xsel1)
-              printf("X selection %s contains %s for %s\n", stxt1, what, name.c_str());
-          } else {
-            if (xsel1 && xsel2)
-              printf("You are ready to paste the %s for %s from %s and %s\n", what, name.c_str(), stxt1, stxt2);
-            else if (xsel1)
-              printf("You are ready to paste the %s for %s from %s\n", what, name.c_str(), stxt1);
-          }
-        }
+      // wait for either a keystroke or an x event
+      fd_set in;
+      FD_ZERO(&in);
+      FD_SET(STDIN_FILENO, &in);
+      FD_SET(xfd, &in);
+      if (select(std::max(STDIN_FILENO, xfd)+1, &in, NULL, NULL, NULL) <= 0) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &tio);
+        throw FailEx();
       }
-      else if (xev.type == SelectionRequest) {
-        Atom prop = xev.xselectionrequest.property;
-        if (prop == None)
-          prop = xev.xselectionrequest.target; // an old-style client
- 
-        bool fakeout = false;
-
-        // don't answer if the timestamp is too early or too late
-        if (!timestamp || (xev.xselectionrequest.time!=CurrentTime && xev.xselectionrequest.time < timestamp))
-          fakeout = true;
-        // don't answer if we don't actually own it
-        if ((!xsel1 || xev.xselectionrequest.selection != xsel1) && (!xsel2 || xev.xselectionrequest.selection != xsel2))
-          fakeout = true;
-        // don't answer if we aren't the owner
-        if (xev.xselectionrequest.owner != xwin)
-          fakeout = true;
-
-        if (!fakeout) {
-          // see what they want exactly
-          if (xev.xselectionrequest.target == XA_TARGETS(xdisplay)) {
-            // tell them what we can supply
-            const Atom targets[] = { XA_TARGETS(xdisplay), XA_TIMESTAMP(xdisplay), XA_TEXT(xdisplay), XA_STRING };
-            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TARGETS(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&targets), sizeof(targets)/sizeof(targets[0]));
-          }
-          else if (xev.xselectionrequest.target == XA_TIMESTAMP(xdisplay)) {
-            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TIMESTAMP(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&timestamp), 1);
-          }
-          else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
-              xev.xselectionrequest.target == XA_STRING) {
-            if (/*arg_verbose &&*/ xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
-              // be very verbose about who is asking for the selection---it could catch a clipboard sniffer
-              const char*const selection = xev.xselectionrequest.selection == xsel1 ? stxt1 : stxt2; // we know xselectionrequest.selection is xsel1 or xsel2 already, so no need to be more paranoid
-
-              // walk up the tree looking for a client window
-              Window w = xev.xselectionrequest.requestor;
-              while (true) {
-                XTextProperty tp = { value: NULL };
-                int rc = XGetTextProperty(xdisplay, w, &tp, XA_WM_COMMAND);
-                if (tp.value) XFree(tp.value), tp.value = NULL;
-                if (!rc) {
-                  rc = XGetWMName(xdisplay, w, &tp);
-                  if (tp.value) XFree(tp.value), tp.value = NULL;
-                }
-                if (rc)
-                  break;
-                Window p = XmuClientWindow(xdisplay, w);
-                if (w != p)
-                  break; // this means we've found it
-                Window parent;
-                Window root;
-                Window* children = NULL;
-                unsigned int numchildren;
-                if (XQueryTree(xdisplay, w, &root, &parent, &children, &numchildren) && children) // unfortunately you can't pass in NULLs to indicate you don't care about the children
-                  XFree(children);
-                if (parent == root)
-                  break; // we shouldn't go any further or we will read the properties of the root
-                w = parent;
-              }
-
-              const char* requestor = "<unknown>";
-              XTextProperty nm = { value: NULL };
-              if ((XGetWMName(xdisplay, w, &nm) && nm.encoding == XA_STRING && nm.format == 8 && nm.value) ||
-                  (((nm.value?(XFree(nm.value),nm.value=NULL):0), XGetTextProperty(xdisplay, w, &nm, XA_WM_COMMAND)) && nm.encoding == XA_STRING && nm.format == 8 && nm.value)) // try getting WM_COMMAND if we can't get WM_NAME
-                requestor = reinterpret_cast<const char*>(nm.value);
-  
-              const char* host = "<unknown>";
-              XTextProperty cm = { value: NULL };
-              if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
-                host = reinterpret_cast<const char*>(cm.value);
- 
-              printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
-
-              if (nm.value) XFree(nm.value);
-              if (cm.value) XFree(cm.value);
-            }
-            XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
-            prevprev_requestor = prev_requestor;
-            prev_requestor = xev.xselectionrequest.requestor;
-          }
-          else {
-            // a target I don't handle
-            fakeout = true;
-          }
-        }
-
-        if (fakeout)
-          prop = None; // indicate no answer
-
-        XEvent resp;
-        resp.xselection.property = prop;
-        resp.xselection.type = SelectionNotify;
-        resp.xselection.display = xev.xselectionrequest.display;
-        resp.xselection.requestor = xev.xselectionrequest.requestor;
-        resp.xselection.selection = xev.xselectionrequest.selection;
-        resp.xselection.target = xev.xselectionrequest.target;
-        resp.xselection.time = xev.xselectionrequest.time;
-        XSendEvent(xdisplay, xev.xselectionrequest.requestor, 0,0, &resp);
-      }
-      else if (xev.type == SelectionClear) {
-        // some other program is taking control of the selection, so we are done
-        bool done = true;
-        // don't answer if the timestamp is too early or too late
-        if (!timestamp || (xev.xselectionclear.time != CurrentTime && xev.xselectionclear.time < timestamp)) {
-          // ignore it; timestamp is out of bounds
-        } else {
-          if (xsel1 && xev.xselectionclear.selection == xsel1) {
-            if (xsel1 != CLIPBOARD && xsel2) { // a clipboard manager application will always take control of the XA_CLIPBOARD immediately, so don't worry about that
-              XSetSelectionOwner(xdisplay, xsel2, None, timestamp);
-              xsel2 = 0;
-            }
+        
+      if (FD_ISSET(STDIN_FILENO, &in)) {
+        char x;
+        ssize_t rc = read(STDIN_FILENO,&x,1);
+        if (rc == 1) {
+          // we are done
+          if (xsel1) {
+            XSetSelectionOwner(xdisplay, xsel1, None, timestamp);
             xsel1 = 0;
           }
-          if (xsel1 && xev.xselectionclear.selection == xsel2) {
-            if (xsel2 != CLIPBOARD && xsel1) {
-              XSetSelectionOwner(xdisplay, xsel1, None, timestamp);
-              xsel1 = 0;
-            }
+          if (xsel2) {
+            XSetSelectionOwner(xdisplay, xsel2, None, timestamp);
             xsel2 = 0;
           }
         }
-      } else {
-        // it is some event we don't care about
+      }
+
+      if (FD_ISSET(xfd, &in)) {
+        XEvent xev;
+        int rc = XNextEvent(xdisplay, &xev);
+
+        if (xev.type == PropertyNotify) {
+          if (!timestamp && xev.xproperty.window == xwin && xev.xproperty.state == PropertyNewValue && xev.xproperty.atom == XA_WM_COMMAND) {
+            timestamp = xev.xproperty.time; // save away the timestamp; that's all we really wanted
+            XSetSelectionOwner(xdisplay, xsel1, xwin, timestamp);
+            if (xsel2)
+              XSetSelectionOwner(xdisplay, xsel2, xwin, timestamp);
+            if (xsel2 && XGetSelectionOwner(xdisplay, xsel2) != xwin) {
+              fprintf(stderr, "Unable to own X selection %s\n", stxt2);
+              xsel2 = 0;
+              num_sel--;
+            }
+            if (XGetSelectionOwner(xdisplay, xsel1) != xwin) {
+              fprintf(stderr, "Unable to own X selection %s\n", stxt1);
+              xsel1 = xsel2;
+              if (stxt1) XFree(stxt1);
+              stxt1 = stxt2;
+              xsel2 = 0; stxt2 = NULL;
+              num_sel--;
+            }
+
+            // let the user know
+            if (arg_verbose>1) {
+              if (xsel1 && xsel2)
+                printf("X selections %s and %s contain %s for %s\n", stxt1, stxt2, what, name.c_str());
+              else if (xsel1)
+                printf("X selection %s contains %s for %s\n", stxt1, what, name.c_str());
+            } else {
+              if (xsel1 && xsel2)
+                printf("You are ready to paste the %s for %s from %s and %s\nPress any key when done.\n", what, name.c_str(), stxt1, stxt2);
+              else if (xsel1)
+                printf("You are ready to paste the %s for %s from %s\nPress any key when done.\n", what, name.c_str(), stxt1);
+            }
+          }
+        }
+        else if (xev.type == SelectionRequest) {
+          Atom prop = xev.xselectionrequest.property;
+          if (prop == None)
+            prop = xev.xselectionrequest.target; // an old-style client
+     
+          bool fakeout = false;
+
+          // don't answer if the timestamp is too early or too late
+          if (!timestamp || (xev.xselectionrequest.time!=CurrentTime && xev.xselectionrequest.time < timestamp))
+            fakeout = true;
+          // don't answer if we don't actually own it
+          if ((!xsel1 || xev.xselectionrequest.selection != xsel1) && (!xsel2 || xev.xselectionrequest.selection != xsel2))
+            fakeout = true;
+          // don't answer if we aren't the owner
+          if (xev.xselectionrequest.owner != xwin)
+            fakeout = true;
+
+          if (!fakeout) {
+            // see what they want exactly
+            if (xev.xselectionrequest.target == XA_TARGETS(xdisplay)) {
+              // tell them what we can supply
+              const Atom targets[] = { XA_TARGETS(xdisplay), XA_TIMESTAMP(xdisplay), XA_TEXT(xdisplay), XA_STRING };
+              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TARGETS(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&targets), sizeof(targets)/sizeof(targets[0]));
+            }
+            else if (xev.xselectionrequest.target == XA_TIMESTAMP(xdisplay)) {
+              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TIMESTAMP(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&timestamp), 1);
+            }
+            else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
+                xev.xselectionrequest.target == XA_STRING) {
+              if (/*arg_verbose &&*/ xev.xselectionrequest.requestor != prev_requestor && xev.xselectionrequest.requestor != prevprev_requestor) { // programs like KDE's Klipper re-request every second, so it isn't very useful to print out multiple times
+                // be very verbose about who is asking for the selection---it could catch a clipboard sniffer
+                const char*const selection = xev.xselectionrequest.selection == xsel1 ? stxt1 : stxt2; // we know xselectionrequest.selection is xsel1 or xsel2 already, so no need to be more paranoid
+
+                // walk up the tree looking for a client window
+                Window w = xev.xselectionrequest.requestor;
+                while (true) {
+                  XTextProperty tp = { value: NULL };
+                  int rc = XGetTextProperty(xdisplay, w, &tp, XA_WM_COMMAND);
+                  if (tp.value) XFree(tp.value), tp.value = NULL;
+                  if (!rc) {
+                    rc = XGetWMName(xdisplay, w, &tp);
+                    if (tp.value) XFree(tp.value), tp.value = NULL;
+                  }
+                  if (rc)
+                    break;
+                  Window p = XmuClientWindow(xdisplay, w);
+                  if (w != p)
+                    break; // this means we've found it
+                  Window parent;
+                  Window root;
+                  Window* children = NULL;
+                  unsigned int numchildren;
+                  if (XQueryTree(xdisplay, w, &root, &parent, &children, &numchildren) && children) // unfortunately you can't pass in NULLs to indicate you don't care about the children
+                    XFree(children);
+                  if (parent == root)
+                    break; // we shouldn't go any further or we will read the properties of the root
+                  w = parent;
+                }
+
+                const char* requestor = "<unknown>";
+                XTextProperty nm = { value: NULL };
+                if ((XGetWMName(xdisplay, w, &nm) && nm.encoding == XA_STRING && nm.format == 8 && nm.value) ||
+                    (((nm.value?(XFree(nm.value),nm.value=NULL):0), XGetTextProperty(xdisplay, w, &nm, XA_WM_COMMAND)) && nm.encoding == XA_STRING && nm.format == 8 && nm.value)) // try getting WM_COMMAND if we can't get WM_NAME
+                  requestor = reinterpret_cast<const char*>(nm.value);
+      
+                const char* host = "<unknown>";
+                XTextProperty cm = { value: NULL };
+                if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
+                  host = reinterpret_cast<const char*>(cm.value);
+     
+                printf("Sending %s for %s to %s@%s via %s\n", what, name.c_str(), requestor, host, selection);
+
+                if (nm.value) XFree(nm.value);
+                if (cm.value) XFree(cm.value);
+              }
+              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(txt.c_str()), txt.length());
+              prevprev_requestor = prev_requestor;
+              prev_requestor = xev.xselectionrequest.requestor;
+            }
+            else {
+              // a target I don't handle
+              fakeout = true;
+            }
+          }
+
+          if (fakeout)
+            prop = None; // indicate no answer
+
+          XEvent resp;
+          resp.xselection.property = prop;
+          resp.xselection.type = SelectionNotify;
+          resp.xselection.display = xev.xselectionrequest.display;
+          resp.xselection.requestor = xev.xselectionrequest.requestor;
+          resp.xselection.selection = xev.xselectionrequest.selection;
+          resp.xselection.target = xev.xselectionrequest.target;
+          resp.xselection.time = xev.xselectionrequest.time;
+          XSendEvent(xdisplay, xev.xselectionrequest.requestor, 0,0, &resp);
+        }
+        else if (xev.type == SelectionClear) {
+          // some other program is taking control of the selection, so we are done
+          bool done = true;
+          // don't answer if the timestamp is too early or too late
+          if (!timestamp || (xev.xselectionclear.time != CurrentTime && xev.xselectionclear.time < timestamp)) {
+            // ignore it; timestamp is out of bounds
+          } else {
+            if (xsel1 && xev.xselectionclear.selection == xsel1) {
+              if (xsel1 != CLIPBOARD && xsel2) { // a clipboard manager application will always take control of the XA_CLIPBOARD immediately, so don't worry about that
+                XSetSelectionOwner(xdisplay, xsel2, None, timestamp);
+                xsel2 = 0;
+              }
+              xsel1 = 0;
+            }
+            if (xsel1 && xev.xselectionclear.selection == xsel2) {
+              if (xsel2 != CLIPBOARD && xsel1) {
+                XSetSelectionOwner(xdisplay, xsel1, None, timestamp);
+                xsel1 = 0;
+              }
+              xsel2 = 0;
+            }
+          }
+        } else {
+          // it is some event we don't care about
+        }
       }
     }
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &tio);
 
     if (arg_verbose>1) printf("X selection%s cleared\n",(num_sel>1?"s":""));
 
     if (stxt1) XFree(stxt1);
     if (stxt2) XFree(stxt2);
-
-#if 0 // HAVE_FCNTL_SETOWN_AND_ASYNC
-    fcntl(STDIN_FILENO, F_SETFL, stdin_flags);
-    tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-    signal(SIGIO, prev_sigio);
-#endif
-
   }
-#endif
+#endif // X_DISPLAY_MISSING
 }
 
 

@@ -1,3 +1,9 @@
+2004-02-27  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+        * pwsafe: you can now end the X selection
+          paste pressing any key. You can still, as
+          always, end it by selecting something.
+
 2004-02-25  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
         * pwsafe: added pwsafe.1.in

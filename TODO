@@ -2,9 +2,6 @@
 add from --input file for bulk import, and --export or --append
 so you can merge and split db's. Maybe import/export to plaintext too.
 
-use ConnectionNumber(xdisplay) to get fd and do the select() you
-really want in emit() to X
-
 Some way of entering multiline notes. Perhaps
 the ole 'single . on a line' termination that
 mail & smtp use?

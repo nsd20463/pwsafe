@@ -78,7 +78,7 @@ fi
 
 dnl Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS(unistd.h sys/param.h sys/time.h time.h sys/mkdev.h sys/sysmacros.h string.h memory.h fcntl.h dirent.h sys/ndir.h ndir.h alloca.h locale.h fcntl.h signal.h)
+AC_CHECK_HEADERS(unistd.h sys/param.h sys/time.h time.h sys/mkdev.h sys/sysmacros.h string.h memory.h fcntl.h dirent.h sys/ndir.h ndir.h alloca.h locale.h fcntl.h signal.h sys/select.h)
 AC_CHECK_HEADERS(stdint.h errno.h termios.h getopt.h)
 AC_CHECK_HEADERS(openssl/sha.h openssl/blowfish.h openssl/rand.h, [], [AC_MSG_ERROR(openssl headers (libssl-dev) are required)])
 if test "$with_readline" != no; then
@@ -189,29 +189,6 @@ typedef std::basic_string<char, std::string::traits_type, test_alloc> test_strin
    AC_MSG_RESULT(yes)],
   [AC_MSG_RESULT(no)])
 AC_LANG_POP(C++)
-
-
-dnl not all systems have fcntl(, F_SETFL, O_ASYNC) or fcntl(, F_SETOWN, )
-AC_MSG_CHECKING([if fcntl() supports F_SETOWN and F_SETFL+O_ASYNC])
-AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#if HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-    ]],[[
-  fcntl(STDIN_FILENO, F_GETFL);
-  fcntl(STDIN_FILENO, F_SETFL, O_ASYNC);
-  fcntl(STDIN_FILENO, F_SETOWN, 1);
-    ]]
-  )],
-  [AC_DEFINE(HAVE_FCNTL_SETOWN_AND_ASYNC, 1, [Define to 1 if fcntl() supports F_SETFL+O_ASYNC and F_SETOWN])
-   AC_MSG_RESULT(yes)],
-  [AC_MSG_RESULT(no)])
-
 
 
 dnl if we enabled debug, remove the -O2 and add -g; actually I override the -O2 by following it with -O0
