@@ -3,8 +3,12 @@
 	* pwsafe: added -G/--ignore with default value {klipper,
 	  xclipboard}
 	* pwsafe: added --exportdb
-	  pwsafe: added --dbversion and support for pwsafe version 2.0
+	* pwsafe: added --dbversion and support for pwsafe version 2.0
 	  databases
+	* pwsafe: now that we have -G/--ignore worked out, pasting
+	  the login automatically advances the state. So now you can
+	  say pwsafe -up NAME, <paste in login field>, <paste in password
+	  field> and you are done. The old methods also still apply.
 
 2004-03-01  Nicolas S. Dade  <ndade@nsd.dyndns.org>
     
