@@ -5,21 +5,30 @@ if [ -z "$srcdir" ]; then
 fi
 
 # test pwsafe on known-good test.dat database, which uses "abc" as passphrase and contains one entry named "testing".
-echo -n "testing pwsafe against test.dat database: "
-out=`./pwsafe -f $srcdir/test.dat 2>&1 <<EOF
-abc
+test() {
+ file="$1"
+ pw="$2"
+ 
+ echo -n "testing pwsafe against $file database: "
+ out=`./pwsafe -f "$file" 2>&1 <<EOF
+$pw
 EOF
 `
 
-if ! echo "$out" | grep 'testing$' >/dev/null; then
-  echo "FAILED!"
-  echo 'pwsafe is NOT WORKING PROPERLY. It is unable to decrypt test.dat (passphase "abc").'
-  echo "Here is the output:"
-  echo "$out"
-  exit 1
-else
-  echo OK
-fi
+ if ! echo "$out" | grep 'testing$' >/dev/null; then
+   echo "FAILED!"
+   echo "pwsafe is NOT WORKING PROPERLY. It is unable to decrypt $file (passphase: $pw)."
+   echo "Here is the output:"
+   echo "$out"
+   exit 1
+ else
+   echo OK
+ fi
+}
+
+test $srcdir/test.dat "abc"
+test $srcdir/testv2.dat "abc"
+
 
 exit 0
 
