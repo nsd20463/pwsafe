@@ -355,6 +355,8 @@ private:
   };
 
   struct Entry {
+  public:
+    typedef std::vector< std::pair<unsigned int,secstring> > extras_t;
   private:
     // the name+login fields are saved as one string in the file for historical reasons (login was added after 1.0), seperated by magic characters we hope you won't use in a name
     const static char SPLIT_CHAR = '\xAD';
@@ -366,8 +368,9 @@ private:
          // future fields: CTIME = 0x7, MTIME = 0x8, ATIME = 0x9, LTIME = 0xa, POLICY = 0xb, 
                 END = 0xff};
 
-    static bool read(FILE*, Context&, Type&, secstring&);
-    static bool write(FILE*, Context&, Type, const secstring&);
+    static bool read(FILE*, Context&, uint8_t& type, secstring&);
+    static bool write(FILE*, Context&, uint8_t type, const secstring&);
+    static bool write(FILE*, Context&, const extras_t&);
 
   public:
     const static char*const MAGIC_V2_NAME; // = " !!!Version 2 File Format!!! ..."
@@ -382,6 +385,8 @@ private:
     // new v2.0 values
     secstring uuid; // I exploit the fact that std::string can contain '\0'
     secstring group;
+    // unknown v2.0+ values are stored as binary, so when the file is saved we can restore them (hopefully this doesn't lead to inconsistencies)
+    extras_t extras;
 
     static void Init(); // computes the_default_login
     Entry();
@@ -2276,9 +2281,13 @@ void DB::list(const char* regex /* might be NULL */) {
           }
         }
 
-        if (!e.uuid.empty() && arg_verbose)
-          // print out the UUID too
-          fprintf(outfile, "%s\n", formatuuid(e.uuid).c_str());
+        if (arg_verbose) {
+          if (!e.uuid.empty())
+            // print out the UUID too
+            fprintf(outfile, "%s\n", formatuuid(e.uuid).c_str());
+          if (!e.extras.empty())
+            fprintf(outfile, "and %u unknown extra fields\n", e.extras.size());
+        }
       } else
         // just print out the name
         fprintf(outfile,"%s\n", e.groupname().c_str());
@@ -2578,7 +2587,7 @@ secstring DB::Entry::groupname() const {
 
 bool DB::Entry::read(FILE* f, DB::Context& c) {
   bool rc = true;
-  Type type;
+  uint8_t type;
   if (c.version > VERSION_1_7) {
     int max_fields = 255;
     do {
@@ -2594,7 +2603,8 @@ bool DB::Entry::read(FILE* f, DB::Context& c) {
           case PASSWORD: password=s; break;
           case END: break;
           default:
-            if (arg_verbose) printf("skipping field of type %u\n", static_cast<int>(type));
+            if (arg_verbose) printf("reading field of unknown type %u\n", static_cast<int>(type));
+            extras.push_back(extras_t::value_type(type,s));
         }
       }
     } while (rc && type != END && --max_fields);
@@ -2672,6 +2682,7 @@ bool DB::Entry::write(FILE* f, DB::Context& c) const {
       write(f,c,USER,login) &&
       write(f,c,PASSWORD,password) &&
       write(f,c,NOTES,notes) &&
+      write(f,c,extras) &&
       write(f,c,END,"");
   } else {
     // here I follow the same wierd login encoding as passwordsafe 1.9, including inserting extra spaces as well as the SPLIT_CHAR between name and login
@@ -2692,7 +2703,7 @@ bool DB::Entry::write(FILE* f, DB::Context& c) const {
   }
 }
 
-bool DB::Entry::read(FILE* f, DB::Context& c, Type& type, secstring& str) {
+bool DB::Entry::read(FILE* f, DB::Context& c, uint8_t& type, secstring& str) {
   str.erase();
   
   Block block;
@@ -2705,7 +2716,7 @@ bool DB::Entry::read(FILE* f, DB::Context& c, Type& type, secstring& str) {
   c.cbc = copy;
 
   const int32_t len = block.getInt32();
-  type = static_cast<Type>(block.getType());
+  type = block.getType();
 
   block.zero();
   copy.zero();
@@ -2744,7 +2755,14 @@ bool DB::Entry::read(FILE* f, DB::Context& c, Type& type, secstring& str) {
   return true;
 }
 
-bool DB::Entry::write(FILE* f, DB::Context& c, Type type, const secstring& str) {
+bool DB::Entry::write(FILE* f, DB::Context& c, const extras_t& extras) {
+  bool rc = true;
+  for (extras_t::const_iterator i=extras.begin(); rc && i!=extras.end(); ++i)
+    rc &= write(f,c,i->first,i->second);
+  return rc;
+}
+
+bool DB::Entry::write(FILE* f, DB::Context& c, uint8_t type, const secstring& str) {
   const unsigned char*const data = reinterpret_cast<const unsigned char*>(str.data());
   
   int numblocks = (str.length()+8-1)/8;

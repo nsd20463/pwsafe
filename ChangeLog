@@ -1,3 +1,9 @@
+2004-10-05  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+  
+	* pwsafe: unknown tag/values in v2 files are preserved
+	  instead of being stripped. This is probably the right thing
+	  to do in the general case.
+
 2004-10-03  Nicolas S. Dade  <ndade@nsd.dyndns.org>
   
 	* pwsafe: added testv2.dat and added matching test to
