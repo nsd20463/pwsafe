@@ -1239,6 +1239,7 @@ static secstring random_password() {
                                        "ABCDEFGHJKLMNPQRTUVWXY"
                                        "346789";
   const static char easyvision_symbol[] = "+-=_@#$%^&<>/~\\?";
+  const static char hex_only[] = "0123456789abcdef";
   const static char digits_only[] = "0123456789";
 
 
@@ -1276,6 +1277,12 @@ static secstring random_password() {
         type_name = "digits only";
         sets[0] = digits_only;
         entropy_per_char = 332; // 100 * log2(10)
+        one_char_from_each_type = false;
+        break; 
+      case 5:
+        type_name = "hex digits only";
+        sets[0] = hex_only;
+        entropy_per_char = 400; // 100 * log2(16)
         one_char_from_each_type = false;
         break; 
       default:
