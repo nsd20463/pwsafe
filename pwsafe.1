@@ -25,7 +25,7 @@
 .\" .br        insert line break
 .\" .sp <n>    insert n+1 empty lines
 .\" for manpage-specific macros, see man(7)
-.TH "PWSAFE" "1" "0.1.1 January 23, 2004" "Nicolas S. Dade <ndade@nsd.dyndns.org>" ""
+.TH "PWSAFE" "1" "0.1.2 January 23, 2004" "Nicolas S. Dade <ndade@nsd.dyndns.org>" ""
 .SH "NAME"
 pwsafe \- commandline password database utility compatible with Counterpane's Passwordsafe
 .SH "SYNOPSIS"
@@ -48,9 +48,14 @@ Change the database's passphrase.
 .TP 
 .B  \-\-list[=REGEX]
 List all [matching] entries in database. If no command is given, \-\-list is assumed.
+.BR 
+If \-u or \-p is given then REGEX must match only one entry, and only the requested field(s) are emitted.
 .TP 
 .B  \-a, \-\-add[=NAME]
 Add an entry to database.
+.TP 
+.B  \-e, \-\-edit=REGEX
+Edit an entry.
 .TP 
 .B  \-\-delete=NAME
 Delete an entry from database.
@@ -59,6 +64,9 @@ Delete an entry from database.
 .TP 
 .B  \-f, \-\-file=DATABASE_FILE
 Specify the database to manipulate. Default is $HOME/.pwsafe.dat
+.TP 
+.B  \-I, \-\-case
+REGEX is case\-sensative.
 .TP 
 .B  \-l
 Show login and notes in list output.
@@ -69,9 +77,9 @@ Show username of listed account(s).
 .B  \-p, \-\-password
 Show password of listed accounts(s).
 .TP 
-.B  \-e, \-\-echo
+.B  \-E, \-\-echo
 Force echo'ing of entry to stdout. This is selected by default if $DISPLAY is not set.
-.TP
+.TP 
 .B  \-o, \-\-output=FILE
 Redirect username and password output to FILE. Implies \-\-echo.
 .TP 
@@ -107,7 +115,23 @@ Backup of database.
 .SH "WARNINGS"
 Use a good password for your database.
 
-Change the database password after using pwsafe over telnet or from untrusted terminals. Or better yet, don't use it except over ssh or a local console.
+Don't use pwsafe over telnet or from untrusted terminals.
+.SH "EXAMPLES"
+For those who can't read the rest of this file:
+.BR 
+.TP 
+Create $HOME/.pwsafe.dat.
+
+pwsafe \-\-createdb
+.TP 
+Add an entry named 'test'.
+
+pwsafe \-a test
+.TP 
+Copy username and password of 'test' to console or X clipboard & primary selection.
+
+pwsafe \-up test
+
 .SH "AUTHOR"
 Nicolas S. Dade <ndade@nsd.dyndns.org>.
 .SH "REPORTING BUGS"

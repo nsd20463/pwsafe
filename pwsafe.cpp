@@ -32,6 +32,7 @@
 
 #include <string>
 #include <map>
+#include <vector>
 #include <algorithm>
 
 #include "system.h"
@@ -72,8 +73,9 @@ const char *program_name;
 // Option flags and variables
 const char* arg_dbname = NULL;
 const char* arg_name = NULL;
-enum OP { OP_NOP, OP_CREATEDB, OP_PASSWD, OP_LIST, OP_ADD, OP_DELETE };
+enum OP { OP_NOP, OP_CREATEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE };
 OP arg_op = OP_NOP;
+bool arg_casesensative = false;
 bool arg_echo = false;
 const char* arg_output = NULL;
 FILE* outfile = NULL; // will be arg_output() or stdout
@@ -95,15 +97,17 @@ static struct option const long_options[] =
   {"passwd", no_argument, 0, 'P'},
   {"list", no_argument, 0, 'L'},
   {"add", no_argument, 0, 'a'},
+  {"edit", no_argument, 0, 'e'},
   {"delete", no_argument, 0, 'D'},
   // options
   {"file", required_argument, 0, 'f'},
+  {"case", no_argument, 0 ,'I'},
   // options controlling what is outputted
   {"long", no_argument, 0, 'l'},
   {"username", no_argument, 0, 'u'},
   {"password", no_argument, 0, 'p'},
   // options controlling where output goes
-  {"echo", no_argument, 0, 'e'},
+  {"echo", no_argument, 0, 'E'},
   {"output", required_argument, 0, 'o'},
 #ifndef X_DISPLAY_MISSING
   {"xclip", no_argument, 0, 'x'},
@@ -203,9 +207,12 @@ private:
     Entry();
     bool read(FILE*, Context&);
     bool write(FILE*, Context&) const;
+
+    bool operator!=(const Entry&) const;
   };
   typedef std::map<secstring, Entry> entries_t;
   entries_t entries;
+  typedef std::vector<const Entry*> matches_t;
 
   secstring passphrase;
   bool opened; // true after open() has succeeded
@@ -215,6 +222,9 @@ private:
 
   bool getkey(bool test, const char* prompt1="Enter passphrase", const char* prompt2="Reenter passphrase"); // ask for password
   bool open(); // call getkey(), read file into entries map
+
+  bool find(matches_t&, const char* regex);
+  const Entry& find1(const char* regex);
 public:
   const std::string dbname_str;
   const char*const dbname;
@@ -226,7 +236,9 @@ public:
   static void createdb(const char* dbname);
   void passwd();
   void list(const char* regex);
+  void emit(const char* regex, bool username, bool password);
   void add(const char* name);
+  void edit(const char* regex);
   void del(const char* name);
 
   bool is_changed() const { return changed; }
@@ -272,9 +284,13 @@ int main (int argc, char **argv) {
     if (arg_op == OP_NOP)
       // assume --list
       arg_op = OP_LIST;
+
+    if (arg_op == OP_LIST && (arg_username || arg_password))
+      // this is actually an OP_EMIT and not an OP_LIST
+      arg_op = OP_EMIT;
     
     if (idx != argc) {
-      if ((arg_op == OP_LIST || arg_op == OP_ADD || arg_op == OP_DELETE) && idx+1 == argc) {
+      if ((arg_op == OP_LIST || arg_op == OP_EMIT || arg_op == OP_ADD || arg_op == OP_EDIT || arg_op == OP_DELETE) && idx+1 == argc) {
         arg_name = argv[idx];
       } else {
         fprintf(stderr, "%s - Too many arguments\n", program_name);
@@ -288,8 +304,8 @@ int main (int argc, char **argv) {
       throw FailEx();
     }
 
-    if (!arg_name && (arg_op == OP_DELETE)) {
-      fprintf(stderr, "--delete must take an argument\n");
+    if (!arg_name && (arg_op == OP_EMIT || arg_op == OP_EDIT || arg_op == OP_DELETE)) {
+      fprintf(stderr, "An entry must be specified\n");
       throw FailEx();
     }
 
@@ -336,7 +352,9 @@ int main (int argc, char **argv) {
       break;
     case OP_PASSWD:
     case OP_LIST:
+    case OP_EMIT:
     case OP_ADD:
+    case OP_EDIT:
     case OP_DELETE:
       {
         DB db(arg_dbname);
@@ -347,6 +365,9 @@ int main (int argc, char **argv) {
             break;
           case OP_LIST:
             db.list(arg_name);
+            break;
+          case OP_EMIT:
+            db.emit(arg_name, arg_username, arg_password);
             break;
           case OP_ADD:
             db.add(arg_name);
@@ -408,12 +429,14 @@ static int parse(int argc, char **argv) {
   int c;
 
   while ((c = getopt_long (argc, argv,
-          "l"  // long listing
-          "a" // add
+          "l"   // long listing
+          "a"   // add
+          "e"   // edit
           "f:"  // file
-          "e"   // echo
+          "I"   // case sensative
+          "E"   // echo
           "o:"  // output
-          "u"   // user
+          "u"   // username
           "p"   // password
 #ifndef X_DISPLAY_MISSING
           "x"   // xclip
@@ -445,19 +468,28 @@ static int parse(int argc, char **argv) {
           usage(true);
         break;
       case 'a':
-        if (arg_op == OP_NOP) {
+        if (arg_op == OP_NOP)
           arg_op = OP_ADD;
-        } else
+        else
+          usage(true);
+        break;
+      case 'e':
+        if (arg_op == OP_NOP)
+          arg_op = OP_EDIT;
+        else
           usage(true);
         break;
       case 'D':
-        if (arg_op == OP_NOP) {
+        if (arg_op == OP_NOP)
           arg_op = OP_DELETE;
-        } else
+        else
           usage(true);
         break;
       case 'f':
         arg_dbname = optarg;
+        break;
+      case 'I':
+        arg_casesensative = true;
         break;
       case 'l':
         if (arg_op == OP_NOP || arg_op == OP_LIST) {
@@ -468,8 +500,8 @@ static int parse(int argc, char **argv) {
         break;
       case 'o':
         arg_output = optarg;
-        // fall through into 'e' since -o implies -e
-      case 'e':
+        // fall through into 'E' since -o implies -e
+      case 'E':
         arg_echo = true; 
 #ifndef X_DISPLAY_MISSING
         arg_xclip = false;
@@ -523,11 +555,12 @@ static void usage(bool fail) {
   fprintf(fail?stderr:stdout,
         "Options:\n"
         "  -f, --file=DATABASE_FILE   specify the database file (default is ~/.pwsafe.dat)\n"
+        "  -I, --case                 perform case sensative matching\n"
         "  -l                         long listing\n"
-        "  -u, --username             emit username of listed account(s)\n"
-        "  -p, --password             emit password of listed account(s)\n"
-        "  -e, --echo                 force echoing of entry to stdout\n"
-        "  -o, --output=FILE          redirect output to file (implies -e)\n"
+        "  -u, --username             emit username of listed account\n"
+        "  -p, --password             emit password of listed account\n"
+        "  -E, --echo                 force echoing of entry to stdout\n"
+        "  -o, --output=FILE          redirect output to file (implies -E)\n"
 #ifndef X_DISPLAY_MISSING
         "  -x, --xclip                force copying of entry to X selection\n"
         "  -d, --display=XDISPLAY     override $DISPLAY (implies -x)\n"
@@ -539,8 +572,9 @@ static void usage(bool fail) {
         "Commands:\n"
         "  --createdb                 create an empty database\n"
         "  --passwd                   change database passphrase\n"
-        "  [--list] [REGEX]           list all [matching] entries\n"
+        "  [--list] [REGEX]           list all [matching] entries. If -u and/or -p are given, only entry must match\n"
         "  -a, --add [NAME]           add an entry\n"
+        "  -e, --edit REGEX           edit an entry\n"
         "  --delete NAME              delete an entry\n"
       );
   if (fail)
@@ -557,7 +591,10 @@ static const char* pwsafe_strerror(int err) {
       return strerror(err);
   }
 }
-      
+
+static char* dummy_completion(const char*, int) {
+  return NULL;
+}
 
 // get a password from the user
 static secstring getpw(const std::string& prompt) {
@@ -566,6 +603,7 @@ static secstring getpw(const std::string& prompt) {
   tcgetattr(STDIN_FILENO, &tio);
   tio.c_lflag &= ~(ECHO);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &tio); // FLUSH so they don't get into the habit of typing ahead their passphrase
+  rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
   char* x = readline(prompt.c_str());
   // restore echo
   tio.c_lflag |= (ECHO);
@@ -584,13 +622,17 @@ static secstring getpw(const std::string& prompt) {
   }
 }
 
-static secstring gettxt(const std::string& prompt) {
+static secstring gettxt(const std::string& prompt, const secstring& default_="") {
+  rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
   char* x = readline(prompt.c_str());
   if (x) {
     secstring xx(x);
     memset(x,0,strlen(x));
     free(x);
-    return xx;
+    if (xx.empty())
+      return default_; // since default is also empty by default, this works out nicely when default is not used
+    else
+      return xx;
   } else {
     // EOF/^d; abort
     throw FailEx();
@@ -601,7 +643,7 @@ static bool getyn(const std::string& prompt, int def_val) {
   struct termios tio;
   tcgetattr(STDIN_FILENO, &tio);
   tio.c_lflag &= ~(ICANON);
-  tcsetattr(STDIN_FILENO, TCSADRAIN, &tio);
+  tcsetattr(STDIN_FILENO, TCSANOW, &tio);
   tio.c_lflag |= (ICANON); // get ready to turn ICANON back on
 
   while (true) {
@@ -1203,12 +1245,12 @@ static void emit(const secstring& name, const char*const what, const secstring& 
 #endif
 }
 
-void DB::list(const char* regex_str /* might be NULL */) {
+bool DB::find(matches_t& matches, const char* regex_str /* might be NULL */) {
   if (arg_verbose) printf("searching %s for %s\n", dbname, regex_str?regex_str:"<all>");
 
   regex_t regex;
   if (regex_str) {
-    int rc = regcomp(&regex, regex_str, REG_ICASE|REG_NOSUB|REG_EXTENDED);
+    int rc = regcomp(&regex, regex_str, (arg_casesensative?0:REG_ICASE)|REG_NOSUB|REG_EXTENDED);
     if (rc) {
       size_t len = regerror(rc, &regex, NULL, 0);
       char* msg = new char[len];
@@ -1220,52 +1262,105 @@ void DB::list(const char* regex_str /* might be NULL */) {
     }
   }
 
-  if (open()) {
-    for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
-      const Entry& e = i->second;
-      if (!regex_str || !regexec(&regex, e.name.c_str(), 0,NULL, 0)) {
-        if (arg_details) {
-          // print out the name
-          fprintf(outfile,"%s", e.name.c_str());
-          
-          // append the login if it exists
-          if (!e.login.empty())
-            fprintf(outfile,"  -  %s\n", e.login.c_str());
-          else if (e.default_login)
-            fprintf(outfile,"  -  [%s]\n", e.the_default_login.c_str());
-          else
-            fprintf(outfile,"\n");
-        } else if (!(arg_username || arg_password))
-          // just print out the name
-          fprintf(outfile,"%s\n", e.name.c_str());
-        // else we are going to emit something, so don't print anything
- 
-        if (arg_username)
-          emit(e.name, "username", e.default_login?e.the_default_login:e.login);
-        if (arg_password)
-          emit(e.name, "password", e.password);
+  for (entries_t::const_iterator i=entries.begin(); i!=entries.end(); ++i) {
+    const Entry& e = i->second;
+    if (!regex_str || !regexec(&regex, e.name.c_str(), 0,NULL, 0))
+      matches.push_back(&e);
+  }
 
-        if (arg_details) {
-          // print out the notes, prefixing each line with "> "
-          if (!e.notes.empty()) {
-            const char* p = e.notes.c_str();
-            while (*p) {
-              const char* q = p;
-              while (*q && *q != '\n' && *q != '\r') q++;
-              fwrite("> ", 1, 2, outfile);
-              fwrite(p, 1, q-p, outfile);
-              fwrite("\n", 1, 1, outfile);
-              while (*q && (*q == '\n' || *q == '\r')) q++;
-              p = q;
-            }
+  if (regex_str)
+    regfree(&regex);
+
+  return true;
+}
+
+const DB::Entry& DB::find1(const char* regex) {
+  matches_t matches;
+  if (find(matches, regex)) {
+    if (matches.size() == 0) {
+      printf("No matching entries\n");
+      throw FailEx();
+    }
+    if (matches.size() > 1) {
+      printf("More than one matching entry: ");
+      int count = 0;
+      for (matches_t::const_iterator i=matches.begin(); i!=matches.end() && count < 3; ++i, ++count)
+        printf("%s%s", (count?", ":""), (*i)->name.c_str());
+      if (count != matches.size())
+        printf(",... ");
+      printf(".\n");
+      throw FailEx();
+    }
+
+    return *matches.front();
+  } else
+    throw FailEx();
+}
+
+void DB::list(const char* regex /* might be NULL */) {
+  matches_t matches;
+  if (open() && find(matches, regex)) {
+    for (matches_t::const_iterator i=matches.begin(); i!=matches.end(); ++i) {
+      const Entry& e = **i;
+      if (arg_details) {
+        // print out the name
+        fprintf(outfile,"%s", e.name.c_str());
+        
+        // append the login if it exists
+        if (!e.login.empty())
+          fprintf(outfile,"  -  %s\n", e.login.c_str());
+        else if (e.default_login)
+          fprintf(outfile,"  -  [%s]\n", e.the_default_login.c_str());
+        else
+          fprintf(outfile,"\n");
+      } else
+        // just print out the name
+        fprintf(outfile,"%s\n", e.name.c_str());
+ 
+      if (arg_details) {
+        // print out the notes, prefixing each line with "> "
+        if (!e.notes.empty()) {
+          const char* p = e.notes.c_str();
+          while (*p) {
+            const char* q = p;
+            while (*q && *q != '\n' && *q != '\r') q++;
+            fwrite("> ", 1, 2, outfile);
+            fwrite(p, 1, q-p, outfile);
+            fwrite("\n", 1, 1, outfile);
+            while (*q && (*q == '\n' || *q == '\r')) q++;
+            p = q;
           }
         }
       }
     }
   }
+}
 
-  if (regex_str)
-    regfree(&regex);
+void DB::emit(const char* regex, bool username, bool password) {
+  if (open()) {
+    const Entry& e = find1(regex);
+
+    if (username)
+      ::emit(e.name, "username", e.default_login?e.the_default_login:e.login);
+    if (password)
+      ::emit(e.name, "password", e.password);
+
+    if (arg_details) {
+      // print out the notes, prefixing each line with "> "
+      if (!e.notes.empty()) {
+        const char* p = e.notes.c_str();
+        while (*p) {
+          const char* q = p;
+          while (*q && *q != '\n' && *q != '\r') q++;
+          fwrite("> ", 1, 2, outfile);
+          fwrite(p, 1, q-p, outfile);
+          fwrite("\n", 1, 1, outfile);
+          while (*q && (*q == '\n' || *q == '\r')) q++;
+          p = q;
+        }
+      }
+    }
+  }
 }
 
 void DB::add(const char* name /* might be NULL */) {
@@ -1288,7 +1383,7 @@ void DB::add(const char* name /* might be NULL */) {
 
     e.login = gettxt("username: ");
     if (e.login.empty())
-      e.default_login = getyn("use default login ("+e.the_default_login+") ? [n] ", false);
+      e.default_login = getyn("use default username ("+e.the_default_login+") ? [n] ", false);
     e.password = getpw("password: ");
     e.notes = gettxt("notes: ");
  
@@ -1296,6 +1391,56 @@ void DB::add(const char* name /* might be NULL */) {
     changed = true;
   }
 } 
+
+void DB::edit(const char* regex) {
+  if (open()) {
+    const Entry& e_orig = find1(regex);
+    Entry e = e_orig; // make a local copy to edit
+
+    e.name = gettxt("name: ["+e.name+"] ", e.name);
+    
+    if (e.default_login)
+      e.default_login = getyn("keep default username ("+e.the_default_login+") ? [y]", true);
+    if (!e.default_login) {
+      e.login = gettxt("username: ["+e.login+"]", e.login);
+      if (e.login.empty() && !e_orig.default_login) // no point in asking if they just disabled default login
+        e.default_login = getyn("user default username ("+e.the_default_login+") ? [n]", false);
+    }
+
+    secstring new_pw = getpw("password: [<keep same>] ");
+    if (!new_pw.empty())
+      e.password = new_pw;
+
+    e.notes = gettxt("notes: ", e.notes);
+
+    if (e_orig != e) {
+      typedef std::vector<std::string> changes_t;
+      changes_t changes;
+      
+      if (e_orig.name != e.name) changes.push_back("name");
+      if (e_orig.default_login != e.default_login || 
+          (!e_orig.default_login && !e.default_login && e_orig.login != e.login))
+        changes.push_back("login");
+      if (e_orig.password != e.password)
+        changes.push_back("password");
+      if (e_orig.notes != e.notes)
+        changes.push_back("notes");
+
+      std::string prompt = "Confirm changing ";
+      for (changes_t::const_iterator i=changes.begin(); i!=changes.end(); ++i) {
+        if (i != changes.begin()) prompt += ", ";
+        prompt += *i;
+      }
+      prompt += " ? [y]";
+      if (getyn(prompt, true)) {
+        entries.erase(entries.find(e_orig.name));
+        entries.insert(entries_t::value_type(e.name,e));
+        changed = true;
+      }
+    }
+  }
+}
+ 
 
 void DB::del(const char* name) {
   if (arg_verbose) printf("deleting %s from %s\n", name, dbname);
@@ -1418,6 +1563,14 @@ void DB::Entry::Init() {
 
 DB::Entry::Entry() : default_login(false) {
   // ok; no-op
+}
+
+bool DB::Entry::operator!=(const Entry& e) const {
+  return name != e.name ||
+    default_login != e.default_login ||
+    (!default_login && !e.default_login && login != e.login) ||
+    password != e.password ||
+    notes != e.notes;
 }
 
 bool DB::Entry::read(FILE* f, DB::Context& c) {
