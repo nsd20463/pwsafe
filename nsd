@@ -2,20 +2,23 @@
 # scripts for the maintainer
 
 case $1 in
-  prep)
+  configure)
+    # rebuild configure and *.in after changing configure.ac
     aclocal && autoheader && automake && autoconf && ./configure --enable-debug
+    exit $?
     ;;
-  compile)
-    $0 prep
+  prep)
+    # configure and make distclean
+    $0 configure
     make clean
     if ! make check; then
      exit 1
     fi
     make distclean
     rm -rf autom4te.cache
-    $0 recompile
     ;;
   recompile)
+    # upload and recompile on each of the sourceforge compile farm servers
     TGZ=pwsafe.tgz
     tar czvf /tmp/$TGZ .
     scp /tmp/$TGZ ndade@cf-shell.sourceforge.net:$TGZ
@@ -23,22 +26,46 @@ case $1 in
 
     # some hosts need custom stuff passed in to ./configure
     ppc_osx1_conf="--without-readline"
-    sparc_solaris1="--without-readline"
-    x86_netbsd1="--without-readline"
+    sparc_solaris1_conf="--without-readline"
+    x86_freebsd1_make=gmake
+    x86_netbsd1_conf="--without-readline"
+    x86_netbsd1_make=gmake
+    x86_openbsd1_make=gmake
  
     for host in alpha-linux1 amd64-linux1 ppc-osx1 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1 x86-openbsd1; do
-      RSH="ssh -lndade cf-shell.sourceforge.net ssh $host"
+      RSH="ssh -l`echo $USER|tr -d -` cf-shell.sourceforge.net ssh $host"
       DIR=$host
       CONF="`echo $host|tr -- - _`_conf"
-      $RSH rm -rf $DIR
-      $RSH mkdir -p $DIR
-      $RSH "gunzip <$TGZ | tar xf - -C $DIR"
-      $RSH "cd $DIR && ./configure ${!CONF-}"
-      $RSH "cd $DIR && gmake check"
+      MAKE="`echo $host|tr -- - _`_make"
+      if $RSH "rm -rf $DIR \; \
+            mkdir -p $DIR \; \
+            gunzip <$TGZ | tar xvf - -C $DIR" ; then
+        if $RSH "cd $DIR \; ./configure ${!CONF-}"; then
+          $RSH "cd $DIR \; ${!MAKE-make} check"
+        fi
+      fi
     done
     ;;
+  compile)
+    # prep & recompile combined
+    $0 prep
+    $0 recompile
+    ;;
+  release)
+    # prep and tar up a release
+    $0 prep
+    VER=`awk <configure.ac '/^AM_INIT_AUTOMAKE/ { print $2 }' | tr -d ')'`
+    TGZ=pwsafe-$VER.tar.gz
+    DIR=pwsafe-$VER
+    rm -rf ../$DIR
+    mkdir -p ../$DIR
+    tar cf - . | tar xf - -C ../$DIR
+    tar czvf ../$TGZ -C ../ $DIR
+    # and make the archival copy
+    { cd ../$DIR; ./configure --program-suffix=$VER; make; strip pwsafe; } 
+    ;;
   *)
-    echo "Usage $0 (prep|recompile|compile)"
+    echo "Usage $0 (configure|prep|compile|recompile|release)"
     exit 1
 esac
 
