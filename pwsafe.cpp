@@ -158,6 +158,7 @@ bool arg_details = false;
 int arg_verbose = 0;
 int arg_debug = 0;
 bool arg_csh = false;
+bool arg_kill = false;
 #ifndef X_DISPLAY_MISSING
 bool arg_xclip = false;
 const char* arg_display = NULL;
@@ -190,7 +191,9 @@ static long_option const long_options[] =
   {"display", required_argument, 0,'d'},
   {"selection", required_argument, 0,'s'},
 #endif
+  // options for agent
   {"csh", no_argument, 0,'C'&31}, // ctrl-c
+  {"kill", no_argument, 0,'k'},
   // standard stuff
   {"verbose", no_argument, 0, 'v'},
   {"help", no_argument, 0, 'h'},
@@ -596,7 +599,7 @@ int main(int argc, char **argv) {
         }
         break;
       case OP_AGENT:
-        { // fork off and become pwsafe passphrase agent
+        if (!arg_kill) { // fork off and become pwsafe passphrase agent
           const char* tmp = getenv("TMP");
           if (!tmp) tmp = getenv("TEMP");
           if (!tmp) tmp = "/tmp";
@@ -661,16 +664,44 @@ int main(int argc, char **argv) {
             if (arg_csh)
               printf("setenv PWSAFE_AUTH_SOCK %s;\n"
                      "setenv PWSAFE_AGENT_PID %d;\n"
-                     "echo Agent pid %d\n", sockname.c_str(), pid, pid);
+                     "echo pwsafe agent pid %d\n", sockname.c_str(), pid, pid);
             else
               printf("PWSAFE_AUTH_SOCK=%s; export PWSAFE_AUTH_SOCK;\n"
                      "PWSAFE_AGENT_PID=%d; export PWSAFE_AGENT_PID;\n"
-                     "echo Agent pid %d\n", sockname.c_str(), pid, pid);
+                     "echo pwsafe agent pid %d\n", sockname.c_str(), pid, pid);
           }
           if (!pid || arg_debug) 
             agent(sock, sockname, sockpath);
           // else we are done
           close(sock);
+        }
+        else {
+          // kill the current agent
+          const char* ap = getenv("PWSAFE_AGENT_PID");
+          if (!ap) {
+            fprintf(stderr, "PWSAFE_AGENT_PID is not set; cannot kill pwsafe agent\n");
+            throw FailEx();
+          }
+          pid_t pid = atoi(ap);
+          if (pid < 1) {
+            fprintf(stderr, "value of PWSAFE_AGENT_PID (%s) is not a pid\n", ap);
+            throw FailEx();
+          }
+          // should we check in /proc that the PID is that of pwsafe-agent?
+          // should we send a message rather than kill()ing?
+          if (kill(pid, SIGTERM) < 0) {
+            fprintf(stderr, "kill(PWSAFE_AGENT_PID=%s) failed: %s\n", ap, strerror(errno));
+            throw FailEx();
+          }
+          // looks like we killed something, so emit the correct commands to unconfigure the shell
+          if (arg_csh)
+            printf("unsetenv PWSAFE_AUTH_SOCK;\n"
+                   "unsetenv PWSAFE_AGENT_PID;\n"
+                   "echo pwsafe agent pid %d killed\n", pid);
+          else
+            printf("unset PWSAFE_AUTH_SOCK;\n"
+                   "unset PWSAFE_AGENT_PID;\n"
+                   "echo pwsafe agent pid %d killed\n", pid);
         }
         break;
       }
@@ -729,6 +760,7 @@ static int parse(int argc, char **argv) {
           "d:"  // display
           "s:"  // x selection
 #endif
+          "k"   // kill
           "v"   // verbose
           "g"   // debug
           "h"   // help
@@ -780,6 +812,9 @@ static int parse(int argc, char **argv) {
         break;
       case 'C'&31:
         arg_csh = true;
+        break;
+      case 'k':
+        arg_kill = true;
         break;
       case 'f':
         arg_dbname = optarg;
@@ -878,6 +913,7 @@ static void usage(bool fail) {
         "  -e, --edit REGEX           edit an entry\n"
         "  --delete NAME              delete an entry\n"
         "  --agent                    be pwsafe passphrase agent\n"
+        "  -k, --kill                 kill pwsafe passphrase agent\n"
       );
   if (fail)
     throw FailEx();
@@ -1040,6 +1076,7 @@ static secstring random_password() {
                                        "ABCDEFGHJKLMNPQRTUVWXY"
                                        "346789";
   const static char easyvision_symbol[] = "+-=_@#$%^&<>/~\\?";
+  const static char digits_only[] = "0123456789";
 
 
   int entropy_needed = 20*8; // enough for proper initialization of a SHA1 hash, and enough for proper direct keying of 128-bit block ciphers
@@ -1048,6 +1085,7 @@ static secstring random_password() {
     const char* type_name = "";
     const char* sets[2] = { "", "" };
     int entropy_per_char;
+    bool one_char_from_each_type = true;
     switch (type) {
       case 0: 
         type_name = "alpha/digit/symbol";
@@ -1071,6 +1109,12 @@ static secstring random_password() {
         sets[1] = easyvision_symbol;
         entropy_per_char = 597;
         break;
+      case 4:
+        type_name = "digits only";
+        sets[0] = digits_only;
+        entropy_per_char = 332; // 100 * log2(10)
+        one_char_from_each_type = false;
+        break; 
       default:
         // wrap around back to type 0
         type = 0;
@@ -1084,7 +1128,8 @@ static secstring random_password() {
     // if originally we had 2^(num_chars * entropy_per_char) possible passwords, and we exclude (in the worst case) (and double-counting those passwords that have two types of char missing)
     // (57-25)/57 ^ num_chars + (57-22)/57 ^ num_chars + (57-10)/57 ^ num_chars of these, we reduce the bits of entropy per char by
     // log2(57)-log2(57-25) + log2(57)-log2(57-22) + log2(57)-log2(57-10) = 1.82 pessimist bits/char
-    entropy_per_char -= 182;
+    if (one_char_from_each_type)
+      entropy_per_char -= 182;
   
     const int num_chars = 1+100*entropy_needed/entropy_per_char; // we want 20*8 bits of entropy in our password (thus good enough to create good SHA1 hashes/to key 128-bit key secret key algo's); +1 is in lou of rounding the division properly
 
@@ -1117,7 +1162,7 @@ static secstring random_password() {
         else if (isdigit(c)) got_num = true;
         else got_sym = true;
       }
-    } while (!got_lower || !got_upper || !got_num || (sets[1][0] && !got_sym)); // some systems want one of each type of char in the password, so might as well do it all the time, even though it is a tiny bit less random this way (but we already took that into account in entropy_per_char)
+    } while (one_char_from_each_type && (!got_lower || !got_upper || !got_num || (sets[1][0] && !got_sym))); // some systems want one of each type of char in the password, so might as well do it all the time, even though it is a tiny bit less random this way (but we already took that into account in entropy_per_char)
 
     // see what the user thinks of this one
     char ent_buf[24];
@@ -1147,7 +1192,7 @@ static secstring random_password() {
         else
           entropy_needed += 32;
         break;
-      case '?':
+      case '?': case 'h': case 'H':
         printf("Commands:\n"
                "  Y      Yes, accept this password\n"
                "  N      No, generate another password of same type\n"
