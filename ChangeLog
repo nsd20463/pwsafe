@@ -1,3 +1,23 @@
+2004-02-11  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+        * pwsafe: fixed massive booboo in secalloc. It
+          worked for me by a miracle.
+        * pwsafe: added 'make test' target test.dat and 
+          check script so you can verify that pwsafe
+          works automatically.
+        * pwsafe: always print out where we are going to
+          output the username/password, so that the user
+          can see in advance where it is going to go and
+          abort if they didn't mean for it to do there.
+        * pwsafe: added --with-openssl-dir=dir to configure
+          to allow linking with openssl in other locations
+          than the default.
+        * pwsafe: added --without-readline to configure
+          to allow building without readline (you get a
+          cheap read(STDIN_FILENO) instead).
+        * pwsafe: fixed gramatical error in error msg.
+        * pwsafe: release 0.1.4 to fix all these.
+ 
 2004-02-09  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
         * pwsafe: implemented secstring and secalloc(ator)
