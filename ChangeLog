@@ -1,3 +1,10 @@
+2005-03-11  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: g++ 3.4.2 changed the interface from the
+	  basic_string<> class to its allocator for the 3rd
+	  time. Had enough with chasing non-standards, and
+	  instead implemented secstring class myself.
+
 2005-03-08  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: when doing a --mergedb, try the passphrase

@@ -71,7 +71,6 @@
 #include <sys/un.h>
 #endif
 
-
 #include <string>
 #include <map>
 #include <set>
@@ -153,6 +152,218 @@ typedef int socklen_t;
 static ssize_t getline(char**,size_t*,FILE*);
 #endif
 
+// ---- secalloc and secstring classes ------------------------------------
+
+// an (SGI style) allocator class that allocates from secure (non-swapable) storage
+class secalloc {
+public:
+  static size_t pagesize;
+  const static size_t alignsize;
+private:
+  struct Pool {
+    Pool* next;
+    char* bottom;
+    char* top;
+    char* level;
+    Pool(size_t);
+    ~Pool();
+  };
+  static Pool* pools;
+public:
+  explicit secalloc();
+  static void init();
+  static void cleanup();
+  static void* allocate(size_t);
+  static void deallocate(void*, size_t);
+  static void* reallocate(void*, size_t, size_t);
+
+  bool operator==(const secalloc&) const { return true; }
+  bool operator!=(const secalloc&) const { return false; }
+
+  // a struct that takes care of calling secalloc::cleanup() when it is destroyed (usefull to ensure that cleanup() is always called)
+  struct Cleanup {
+    Cleanup() { secalloc::init(); }
+    ~Cleanup() { secalloc::cleanup(); }
+  };
+};
+static secalloc::Cleanup cleanup_secalloc; // so secalloc::cleanup() is always called. Carefull, this must be the first global object so that global secstrings are destroyed first
+
+// There are 4 different allocator interfaces I know of used by g++. g++ 2.9, 3.0, 3.x, x>=1, and 3.4.2.
+// I used to try and use std::basic_string, but now I give up and implement my own stupid string
+// class. Thank goodness for standards :-(
+
+// a string class for handling strings that must not be swapped out---we use the secure allocator
+class secstring {
+public:
+  typedef int size_type;
+  static const size_type npos = -1;
+private:
+  char* txt;
+  size_type len; // length of text
+  size_type res; // length of buffer
+  static char null_string;
+
+  void construct(const char*, size_type, const char*, size_type);
+  void deallocate() {
+    if (txt != &null_string)
+      secalloc::deallocate(txt,res+1);
+  }
+public:
+  secstring() : txt(&null_string), len(0), res(0) {}
+  secstring(const secstring&);
+  secstring(const char*);
+  secstring(const char*, size_type);
+  secstring(const char*, const char*);
+  secstring(const char*, size_type, const char*, size_type);
+  ~secstring();
+
+  bool operator == (const secstring&) const;
+  bool operator != (const secstring& s) const { return ! operator==(s); }
+  bool operator < (const secstring&) const;
+
+  size_type find(char);
+  size_type find_first_not_of(char);
+  size_type find_last_not_of(char);
+
+  const char& operator[] (size_t i) const { return txt[i]; }
+  char& operator[] (size_t i) { return txt[i]; }
+  const char* c_str() const { return txt; }
+  const char* data() const { return txt; }
+  size_t length() const { return len; }
+  bool empty() const { return len == 0; }
+
+  secstring& assign(const char*, size_type);
+  secstring& assign(const char* t) { return assign(t,strlen(t)); }
+  secstring& operator = (const char* t) { return assign(t); }
+  secstring& operator = (const secstring& s) { return assign(s.c_str(),s.len); }
+  secstring& append(const char*, size_type);
+  secstring& operator += (char c) { return append(&c,1); }
+  secstring& operator += (const char* t) { return append(t,strlen(t)); }
+  secstring& operator += (const secstring& s) { return append(s.c_str(),s.len); }
+  secstring substr(size_type, size_type);
+  void erase() { operator=(&null_string); }
+  void reserve(size_type);
+  void resize(size_type);
+
+  typedef const char* const_iterator;
+  const_iterator begin() const { return txt; }
+  const_iterator end() const { return txt+len; }
+};
+
+char secstring::null_string = '\0';
+
+secstring::secstring(const secstring& s) : txt(&null_string), len(0), res(0) {
+  assign(s.c_str(),s.length());
+}
+
+secstring::secstring(const char* t) : txt(&null_string), len(0), res(0) {
+  assign(t);
+}
+
+secstring::secstring(const char* t, size_type l) : txt(&null_string), len(0), res(0) {
+  assign(t,l);
+}
+
+secstring::secstring(const char* t1, const char* t2) : txt(&null_string), len(0), res(0) {
+  construct(t1,strlen(t1),t2,strlen(t2));
+}
+
+secstring::secstring(const char* t1, size_type l1, const char* t2, size_type l2) : txt(&null_string), len(0), res(0) {
+  construct(t1,l1,t2,l2);
+}
+
+void secstring::construct(const char* t1, size_type l1, const char* t2, size_type l2) {
+  res = len = l1 + l2;
+  txt = reinterpret_cast<char*>(secalloc::allocate(res+1));
+  memcpy(txt,t1,l1);
+  memcpy(txt+l1,t2,l2);
+  txt[len] = '\0';
+}
+
+secstring::~secstring() { 
+  deallocate();
+}
+
+secstring& secstring::assign(const char* t, size_type l) {
+  if (t != txt) {
+    deallocate();
+    res = len = l;
+    txt = reinterpret_cast<char*>(secalloc::allocate(res+1));
+    memcpy(txt,t,len);
+    txt[len] = '\0';
+  }
+}
+
+secstring& secstring::append(const char* t, size_type l) {
+  if (len+l > res)
+    reserve(len+l);
+  memcpy(txt+len,t,l);
+  len += l;
+  txt[len] = '\0';
+  return *this;
+}
+secstring secstring::substr(size_type s, size_type e) {
+  if (e == npos)
+    e = len;
+  return secstring(txt+s,e-s);
+}
+
+void secstring::reserve(size_type r) {
+  if (res < r) {
+    char* t = reinterpret_cast<char*>(secalloc::allocate(r+1));
+    memcpy(t,txt,len+1);
+    deallocate();
+    txt = t;
+    res = r;
+  }
+}
+void secstring::resize(size_type r) {
+  reserve(r);
+  len = r;
+  txt[r] = '\0';
+}
+
+bool secstring::operator==(const secstring& s) const {
+  return this == &s ||
+         (len == s.len &&
+          memcmp(txt,s.txt,len) == 0);
+}
+bool secstring::operator<(const secstring& s) const {
+  return strcmp(txt,s.txt) < 0;
+}
+
+secstring::size_type secstring::find(char c) {
+  char* p = strchr(txt,c);
+  return p ? p-txt : npos;
+}
+secstring::size_type secstring::find_first_not_of(char c) {
+  for (size_type p = 0; p < len; p++)
+    if (txt[p] != c)
+      return p;
+  return npos;
+}
+secstring::size_type secstring::find_last_not_of(char c) {
+  for (size_type p = len-1; p >= 0; p--)
+    if (txt[p] != c)
+      return p;
+  return npos;
+}
+
+secstring operator+(const secstring& t1, const secstring& t2) { 
+  return secstring(t1.c_str(),t1.length(),t2.c_str(),t2.length()); 
+}
+secstring operator+(const char* t1, const secstring& t2) { 
+  return secstring(t1,strlen(t1),t2.c_str(),t2.length()); 
+}
+secstring operator+(const secstring& t1, const char* t2) { 
+  return secstring(t1.c_str(),t1.length(),t2,strlen(t2)); 
+}
+secstring operator+(const secstring& t1, char c) { 
+  return secstring(t1.c_str(),t1.length(),&c,1);
+}
+  
+
+  
 // ------ end of fixups for various systems; on to the real program ------
 
 //#define INTERACTIVE_MODE // enable experimental interactive mode
@@ -237,55 +448,6 @@ static long_option const long_options[] =
   {NULL, 0, NULL, 0}
 };
 
-
-// an (SGI style) allocator class that allocates from secure (non-swapable) storage
-class secalloc {
-public:
-  static size_t pagesize;
-  const static size_t alignsize;
-private:
-  struct Pool {
-    Pool* next;
-    char* bottom;
-    char* top;
-    char* level;
-    Pool(size_t);
-    ~Pool();
-  };
-  static Pool* pools;
-public:
-  explicit secalloc();
-  static void init();
-  static void cleanup();
-  static void* allocate(size_t);
-  static void deallocate(void*, size_t);
-  static void* reallocate(void*, size_t, size_t);
-
-  bool operator==(const secalloc&) const { return true; }
-  bool operator!=(const secalloc&) const { return false; }
-
-  // a struct that takes care of calling secalloc::cleanup() when it is destroyed (usefull to ensure that cleanup() is always called)
-  struct Cleanup {
-    Cleanup() { secalloc::init(); }
-    ~Cleanup() { secalloc::cleanup(); }
-  };
-};
-static secalloc::Cleanup cleanup_secalloc; // so secalloc::cleanup() is always called. Carefull, this must be the first global object so that global secstrings are destroyed first
-
-#if BASIC_STRING_USES_SGI_STYLE_ALLOCATOR
-// basic_string uses an SGI style allocator, so pass it ours
-typedef secalloc secstring_alloc;
-#else
-// g++ 3.[1-3] uses a different allocator style where the allocators are per-type
-// we must wrap our secalloc with their interface to get an allocator suitable for
-// std::basic_string. All this is getting very complicated...and might even break
-// in g++ 3.4, or so the documentation hints. And g++ 3.0 was way too broken and
-// is not supported.
-typedef std::__allocator<char,secalloc> secstring_alloc;
-#endif
-
-// a string class for handling strings that must not be swapped out---we use the secure allocator
-typedef std::basic_string<char, std::string::traits_type, secstring_alloc> secstring; // getting the traits to work with gcc 2.9x through 3.3 is tricky; stealing the trait class from the std::string is the cleanest portable thing I can think to do
 
 static void usage(bool fail);
 static int parse(int argc, char **argv);
@@ -2837,7 +2999,7 @@ bool DB::Entry::write(FILE* f, DB::Context& c) const {
     // it doesnt look like anything depends on those spaces, but...
     secstring name_login;
     if (!group.empty())
-      name_login = group + "."; // passwordsafe 2.0 prepends the v2.0 group when writing a v1.7 file, so I do it too
+      name_login = group + '.'; // passwordsafe 2.0 prepends the v2.0 group when writing a v1.7 file, so I do it too
     if (default_login) // this this first so that if the_default_login is "" we still get it right (so here I don't follow passwordsafe)
       name_login += name + DEFAULT_USER_CHAR;
     else if (login.empty())
