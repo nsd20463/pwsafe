@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [ -z "$srcdir" ]; then
  srcdir=.
@@ -29,7 +29,7 @@ fi
 
 # remove a non-existant entry
 echo -n "testing removing an entry that does not exist from $file: "
-out=`$pwsafe 2>$err --delete does_not_exist -f $file <<EOF
+out=`$pwsafe 2>$err --delete -f $file does_not_exist <<EOF
 $pw
 EOF
 `
@@ -46,7 +46,7 @@ fi
 
 # edit an existing entry
 echo -n "testing editing 'testing' entry in $file: "
-out=`$pwsafe 2>$err --edit testing -f $file <<EOF
+out=`$pwsafe 2>$err --edit -f $file testing <<EOF
 abc
 new_name
 new_group
@@ -70,7 +70,7 @@ fi
 
 # remove an existing entry
 echo -n "testing removing 'testing' entry from $file: "
-out=`$pwsafe 2>$err --delete new_group.new_name -f $file <<EOF
+out=`$pwsafe 2>$err --delete -f $file new_group.new_name <<EOF
 $pw
 EOF
 `

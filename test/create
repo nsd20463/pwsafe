@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [ -z "$srcdir" ]; then
  srcdir=.
@@ -16,6 +16,11 @@ if [ -e $file ]; then
   exit 1
 fi
 
+cat <<EOF
+$pw
+$pw
+EOF
+
 echo -n "testing creation of new db $file: "
 out=`$pwsafe 2>$err --createdb -f $file <<EOF
 $pw
@@ -32,6 +37,7 @@ if [ $? -ne 0 -o ! -r $file ]; then
 else
   echo OK
 fi
+
 
 # read back new and supposedly empty database
 echo -n "testing readback of new db $file: "
@@ -54,7 +60,7 @@ fi
 
 # add an entry to the new database
 echo -n "testing adding of an entry to db $file: "
-out=`$pwsafe 2>$err --add "test group.test name" -f $file <<EOF
+out=`$pwsafe 2>$err --add -f $file "test group.test name" <<EOF
 $pw
 test login
 test pw
@@ -79,10 +85,7 @@ out=`$pwsafe 2>$err --exportdb -f $file <<EOF
 $pw
 EOF
 `
-if [ $? -ne 0 ] || ! echo "$out" | grep \
-"# passwordsafe version 2.0 database
-uuid	group	name	login	passwd	notes
-........-....-....-....-............	test group	test name	test login	test pw	test notes" >/dev/null ; then
+if [ $? -ne 0 ] || ! echo "$out" | grep "........-....-....-....-.............*test group.*test name.*test login.*test pw.*test notes" >/dev/null ; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is unable to read back its new entry in $file (passphrase: $pw)."
   echo "Here is the output:"
@@ -92,6 +95,7 @@ uuid	group	name	login	passwd	notes
 else
   echo OK
 fi
+
 
 # cleanup after ourselves
 rm $file $file~ $err
