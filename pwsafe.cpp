@@ -457,10 +457,10 @@ static const char* pwsafe_strerror(int err); // decodes errno's as well as our n
 static char get1char(const char* prompt, int def_val=-1);
 static bool getyn(const char* prompt, int def_val=-1);
 
-static inline char get1char(const std::string& prompt, int dev_val=-1) { return get1char(prompt.c_str(), dev_val); }
-static inline char get1char(const secstring& prompt, int dev_val=-1) { return get1char(prompt.c_str(), dev_val); }
-static inline bool getyn(const std::string& prompt, int dev_val=-1) { return getyn(prompt.c_str(), dev_val); }
-static inline bool getyn(const secstring& prompt, int dev_val=-1) { return getyn(prompt.c_str(), dev_val); }
+static inline char get1char(const std::string& prompt, int def_val=-1) { return get1char(prompt.c_str(), def_val); }
+static inline char get1char(const secstring& prompt, int def_val=-1) { return get1char(prompt.c_str(), def_val); }
+static inline bool getyn(const std::string& prompt, int def_val=-1) { return getyn(prompt.c_str(), def_val); }
+static inline bool getyn(const secstring& prompt, int def_val=-1) { return getyn(prompt.c_str(), def_val); }
 
 struct FailEx {}; // thrown to unwind, cleanup and cause main to return 1
 struct ExitEx { const int rc; explicit ExitEx(int c) : rc(c) {} }; // thrown to unwind and exit() with rc
@@ -568,6 +568,8 @@ private:
 
     bool operator!=(const Entry&) const;
     bool operator==(const Entry& e) const { return !operator!=(e); }
+    int diff(const Entry&, secstring& summary) const;
+    secstring diff(const Entry&) const;
 
     secstring groupname() const;
   };
@@ -587,7 +589,8 @@ private:
   bool testkey(const secstring&);
   void hashkey(const secstring&, unsigned char test_hash[]);
 
-  bool merge(const Entry&, bool overwrite=false); // merge entry into database, replacing any matching entry
+  bool add(const Entry&); // add entry into database
+  bool del(const Entry&); // remove entry from database
   bool find(matches_t&, const char* regex); // find all entries matching regex
   const Entry& find1(const char* regex); // find the one entry either == regex or matching; throw FailEx if 0 or >1 match
 public:
@@ -1487,10 +1490,10 @@ static char get1char(const char*const prompt, const int def_val) {
 static bool getyn(const char*const prompt, const int def_val) {
   while (true) {
     char c = get1char(prompt, def_val>0?'y':def_val==0?'n':-1);
-    switch (c) {
-    case 'y': case 'Y':
+    switch (tolower(c)) {
+    case 'y':
       return true;
-    case 'n': case 'N':
+    case 'n':
       return false;
     // default: prompt again until we get a good answer
     }
@@ -1608,10 +1611,10 @@ static secstring random_password() {
     char len_buf[24];
     snprintf(len_buf, sizeof(len_buf), "%d", pw.length());
     len_buf[sizeof(len_buf)-1] = '\0';
-    switch (get1char("Use "+pw+"\ntype "+type_name+", length "+len_buf+", "+ent_buf+" bits of entropy [y/N/ /+/-/q/?] ? ", 'n')) {
-      case 'y': case 'Y':
+    switch (tolower(get1char("Use "+pw+"\ntype "+type_name+", length "+len_buf+", "+ent_buf+" bits of entropy [y/N/ /+/-/q/?] ? ", 'n'))) {
+      case 'y':
         return pw;
-      case 'q': case 'Q':
+      case 'q':
         return "";
       case ' ':
         type++;
@@ -1629,7 +1632,7 @@ static secstring random_password() {
         else
           entropy_needed += 32;
         break;
-      case '?': case 'h': case 'H':
+      case '?': case 'h':
         printf("Commands:\n"
                "  Y      Yes, accept this password\n"
                "  N      No, generate another password of same type\n"
@@ -2108,23 +2111,27 @@ void DB::exportdb() {
     throw FailEx();
 }
 
-bool DB::merge(const Entry& e, bool overwrite) {
+bool DB::add(const Entry& e) {
   bool overwrote = false;
   secstring gn = e.groupname();
-  {
-    entries_t::iterator i = entries.find(gn);
-    if (i != entries.end()) {
-      if (overwrite) {
-        entries.erase(i);
-        overwrote = true;
-      } else
-        return false;
-    }
-  }
+  if (entries.find(gn) != entries.end())
+    return false;
   entries.insert(entries_t::value_type(gn,e));
   changed = true;
-  if (arg_verbose > 0) printf("%s %s\n", (overwrote?"overwrote":"added"), gn.c_str());
+  if (arg_verbose > 0) printf("added %s\n", gn.c_str());
   return true;
+}
+
+bool DB::del(const Entry& e) {
+  for (entries_t::iterator i = entries.begin(); i != entries.end(); ++i) {
+    if (&i->second == &e) {
+      if (arg_verbose > 0) printf("deleted %s\n", e.groupname().c_str()); // print this out before we delete it
+      entries.erase(i);
+      changed = true;
+      return true;
+    }
+  }
+  return false;
 }
 
 void DB::mergedb(DB& db2) {
@@ -2148,17 +2155,33 @@ void DB::mergedb(DB& db2) {
 
         if ((e.uuid == f.uuid && !e.uuid.empty()) ||
             e.groupname() == f.groupname()) {
-          if (getyn("Entry "+e.groupname()+" already exists. Overwrite ? [n] ", false)) {
-            merge(e,true);
-            num_merged++;
-          } else
-            num_skipped++;
-          done = true;
+          // this is the same entry, but the contents are different
+          secstring summary;
+          int n = e.diff(f,summary);
+          while (!done) {
+            switch (tolower(get1char("Entry "+e.groupname()+" differs ("+summary+"). Overwrite ? [y/N/d/?/q] ", 'n'))) {
+              case 'y':
+                del(f);
+                add(e);
+                num_merged++;
+                done = true;
+                break;
+              case 'n':
+                num_skipped++;
+                done = true;
+                break;
+              case 'd': case '?':
+                printf("%s", e.diff(f).c_str());
+                break;
+              case 'q':
+                throw FailEx();
+            }
+          }
           break;
         }
       }
       if (!done) {
-        merge(e);
+        add(e);
         num_merged++;
       }
     }
@@ -2888,6 +2911,74 @@ bool DB::Entry::operator!=(const Entry& e) const {
     (!default_login && !e.default_login && login != e.login) ||
     password != e.password ||
     notes != e.notes;
+}
+
+int DB::Entry::diff(const Entry& e, secstring& summary) const {
+  int n = 0;
+  if (uuid != e.uuid) {
+    summary += "uuid, ";
+    n++;
+  }
+  if (group != e.group) {
+    summary += "group, ";
+    n++;
+  }
+  if (name != e.name) {
+    summary += "name, ";
+    n++;
+  }
+  if (default_login != e.default_login) {
+    summary += "login, ";
+    n++;
+  }
+  if (!default_login && !e.default_login && login != e.login) {
+    summary += "login, ";
+    n++;
+  }
+  if (password != e.password) {
+    summary += "password, ";
+    n++;
+  }
+  if (notes != e.notes) {
+    summary += "notes, ";
+    n++;
+  }
+  if (n > 0) {
+    // strip off trailing ", "
+    summary = summary.substr(0, summary.length()-2);
+  }
+  return n;
+}
+
+secstring DB::Entry::diff(const Entry& e) const {
+  secstring s;
+  if (uuid != e.uuid) 
+    s += "UUID -- " + uuid + "\n"
+         "UUID ++ " + e.uuid + "\n";
+  if (group != e.group)
+    s += "GROUP -- \"" + group + "\"\n"
+         "GROUP ++ \"" + e.group + "\"\n";
+  if (name != e.name)
+    s += "NAME -- \"" + name + "\"\n"
+         "NAME ++ \"" + e.name + "\"\n";
+  if (default_login != e.default_login) {
+    s += "DEFAULT LOGIN -- ";
+    s += (default_login ? "yes" : "no");
+    s += "\n"
+         "DEFAULT LOGIN ++ ";
+    s += (e.default_login ? "yes" : "no");
+    s += "\n";
+  }
+  if (!default_login && !e.default_login && login != e.login)
+    s += "LOGIN -- \"" + login + "\"\n"
+         "LOGIN ++ \"" + e.login + "\"\n";
+  if (password != e.password)
+    s += "PASSWORD -- <not shown>\n"
+         "PASSWORD ++ <not shown>\n";
+  if (notes != e.notes)
+    s += "NOTES -- \"" + notes + "\"\n"
+         "NOTES ++ \"" + e.notes + "\"\n";
+  return s;
 }
 
 secstring DB::Entry::groupname() const {
