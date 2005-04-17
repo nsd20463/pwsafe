@@ -36,6 +36,8 @@ first) and gmake.
 
 pwsafe builds on FreeBSD 4.9 if you use gmake.
 
+pwsafe builds find on OpenBSD 3.4.
+
 pwsafe builds on Solaris if you first install openssl (for libcrypto). If you have
 openssh you already have openssl somewhere, though you might not have the header
 files. And you need to use --without-readline, or install that as well.

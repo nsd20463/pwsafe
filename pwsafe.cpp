@@ -3226,6 +3226,7 @@ static char* readline(const char* prompt) {
   if (!buf)
     throw FailEx();
   memcpy(buf, saved.data(), saved.length());
+  buf[saved.length()] = '\0';
 
   while (!strchr(buf,'\n')) {
     const int rc = ::read(STDIN_FILENO, buf+bufpos, buflen);
