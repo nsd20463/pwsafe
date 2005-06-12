@@ -1,3 +1,8 @@
+2005-06-11  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: reversed sense of diff output
+	  during merge so -- and ++ make sense.
+
 2005-04-17  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: fixed segv in readline() when saved

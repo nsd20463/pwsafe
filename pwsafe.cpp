@@ -2157,7 +2157,7 @@ void DB::mergedb(DB& db2) {
             e.groupname() == f.groupname()) {
           // this is the same entry, but the contents are different
           secstring summary;
-          int n = e.diff(f,summary);
+          int n = f.diff(e,summary);
           while (!done) {
             switch (tolower(get1char("Entry "+e.groupname()+" differs ("+summary+"). Overwrite ? [y/N/d/?/q] ", 'n'))) {
               case 'y':
@@ -2171,7 +2171,7 @@ void DB::mergedb(DB& db2) {
                 done = true;
                 break;
               case 'd': case '?':
-                printf("%s", e.diff(f).c_str());
+                printf("%s", f.diff(e).c_str());
                 break;
               case 'q':
                 throw FailEx();
