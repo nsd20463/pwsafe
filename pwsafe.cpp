@@ -162,8 +162,8 @@ public:
 private:
   struct Pool {
     Pool* next;
-    char* bottom;
     char* top;
+    char* bottom;
     char* level;
     Pool(size_t);
     ~Pool();
@@ -292,6 +292,7 @@ secstring& secstring::assign(const char* t, size_type l) {
     memcpy(txt,t,len);
     txt[len] = '\0';
   }
+  return *this;
 }
 
 secstring& secstring::append(const char* t, size_type l) {
@@ -1091,6 +1092,7 @@ int main(int argc, char **argv) {
             case OP_DELETE:
               db.del(arg_name);
               break;
+            // cases OP_NOP and OP_CREATEDB were handled earlier, above
             }
 
             // backup and save if changes have occured
@@ -1989,7 +1991,7 @@ uint8_t Block::getType() const {
 }
 
 void Block::read(const unsigned char* data, int len) {
-  if (len < sizeof(block))
+  if (static_cast<size_t>(len) < sizeof(block))
     memset(block,0,sizeof(block));
   memcpy(block,data,std::min(int(sizeof(block)),len));
   makeLE(reinterpret_cast<unsigned char*>(block));
@@ -2024,8 +2026,9 @@ void DB::Init() {
 }
 
 DB::DB(const char* n, Version v) : 
-  dbname_str(n), dbname(dbname_str.c_str()), version(v), 
-  opened(false), changed(false), backedup(false), overwritten(false)
+  version(v), 
+  opened(false), changed(false), backedup(false), overwritten(false),
+  dbname_str(n), dbname(dbname_str.c_str())
 {
   header = new Header();
 }
@@ -2112,7 +2115,6 @@ void DB::exportdb() {
 }
 
 bool DB::add(const Entry& e) {
-  bool overwrote = false;
   secstring gn = e.groupname();
   if (entries.find(gn) != entries.end())
     return false;
@@ -2157,7 +2159,7 @@ void DB::mergedb(DB& db2) {
             e.groupname() == f.groupname()) {
           // this is the same entry, but the contents are different
           secstring summary;
-          int n = f.diff(e,summary);
+          f.diff(e,summary);
           while (!done) {
             switch (tolower(get1char("Entry "+e.groupname()+" differs ("+summary+"). Overwrite ? [y/N/d/?/q] ", 'n'))) {
               case 'y':
@@ -2568,7 +2570,7 @@ const DB::Entry& DB::find1(const char* regex) {
     }
     if (matches.size() > 1) {
       printf("More than one matching entry: ");
-      int count = 0;
+      size_t count = 0;
       for (matches_t::const_iterator i=matches.begin(); i!=matches.end() && count < 3; ++i, ++count)
         printf("%s%s", (count?", ":""), (*i)->groupname().c_str());
       if (count != matches.size())
@@ -3275,7 +3277,7 @@ void secalloc::cleanup() {
 }
 
 void* secalloc::allocate(size_t n) {
-  if (!pools || pools->top - pools->level < n) {
+  if (!pools || static_cast<size_t>(pools->top - pools->level) < n) {
     // need a new pool
     Pool* p = new (std::nothrow) Pool(std::max(n, static_cast<size_t>(16*pagesize)));
     if (!p) {
