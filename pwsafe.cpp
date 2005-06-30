@@ -1324,7 +1324,7 @@ static void usage(bool fail) {
 //        "  -F, --config=CONFIG_FILE   specify a configuration (defaults is ~/.pwsaferc + /etc/pwsaferc)\n"
         "  -f, --file=DATABASE_FILE   specify the database file (default is ~/.pwsafe.dat)\n"
         "  -I, --case                 perform case sensative matching\n"
-        "  -l                         long listing (show usename & notes)\n"
+        "  -l                         long listing (show username & notes)\n"
         "  -u, --username             emit username of listed account\n"
         "  -p, --password             emit password of listed account\n"
         "  -E, --echo                 force echoing of entry to stdout\n"
@@ -1950,6 +1950,21 @@ static void emit(const secstring& name, const char*const what, const secstring& 
 #endif // X_DISPLAY_MISSING
 }
 
+// pretty print notes to tty, prefixing each line with "> "
+static void emit_notes(const secstring& notes) {
+  if (!notes.empty()) {
+    const char* p = notes.c_str();
+    while (*p) {
+      const char* q = p;
+      while (*q && *q != '\n' && *q != '\r') q++;
+      fwrite("> ", 1, 2, outfile);
+      fwrite(p, 1, q-p, outfile);
+      fwrite("\n", 1, 1, outfile);
+      while (*q && (*q == '\n' || *q == '\r')) q++;
+      p = q;
+    }
+  }
+}
 
 // ---- Block class -------------------------------
 
@@ -2603,18 +2618,7 @@ void DB::list(const char* regex /* might be NULL */) {
           fprintf(outfile,"\n");
  
         // print out the notes, prefixing each line with "> "
-        if (!e.notes.empty()) {
-          const char* p = e.notes.c_str();
-          while (*p) {
-            const char* q = p;
-            while (*q && *q != '\n' && *q != '\r') q++;
-            fwrite("> ", 1, 2, outfile);
-            fwrite(p, 1, q-p, outfile);
-            fwrite("\n", 1, 1, outfile);
-            while (*q && (*q == '\n' || *q == '\r')) q++;
-            p = q;
-          }
-        }
+        emit_notes(e.notes);
 
         if (arg_verbose > 0) {
           if (!e.uuid.empty())
@@ -2634,26 +2638,19 @@ void DB::emit(const char* regex, bool username, bool password) {
   if (open()) {
     const Entry& e = find1(regex);
 
+    if (!arg_echo && arg_details)
+      // if we're not emit()ing to stdout, then print notes before sending login/password to X clipboard.
+      // this way if the notes contain a URL, the user can cut/paste that too
+      emit_notes(e.notes);
+
     if (username)
       ::emit(e.groupname(), "username", e.default_login?e.the_default_login:e.login);
     if (password)
       ::emit(e.groupname(), "password", e.password);
-
-    if (arg_details) {
-      // print out the notes, prefixing each line with "> "
-      if (!e.notes.empty()) {
-        const char* p = e.notes.c_str();
-        while (*p) {
-          const char* q = p;
-          while (*q && *q != '\n' && *q != '\r') q++;
-          fwrite("> ", 1, 2, outfile);
-          fwrite(p, 1, q-p, outfile);
-          fwrite("\n", 1, 1, outfile);
-          while (*q && (*q == '\n' || *q == '\r')) q++;
-          p = q;
-        }
-      }
-    }
+ 
+    if (arg_echo && arg_details)
+      // if we didn't emit the notes above, do it now
+      emit_notes(e.notes);
   }
 }
 
