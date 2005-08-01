@@ -1,3 +1,9 @@
+2005-07-31  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: fixed swapo in help text displayed
+          during random password generation. Improved
+          the grammer too.
+          
 2005-06-11  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: reversed sense of diff output
