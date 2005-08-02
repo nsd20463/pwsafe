@@ -3224,7 +3224,8 @@ secalloc::Pool::Pool(size_t n) : next(0), top(0), bottom(0), level(0) {
 
   // mark level..top as non-swapabble
   int rc = mlock(level,top-level);
-  if (rc && errno == EPERM && (saved_uid != geteuid() || saved_gid != getegid())) {
+  // Redhat FC3 returns ENOMEM if not root, not EPERM, so dont bother checking for EPERM error from mlock(); treat any error to mean 'try mlock() against as SUID user'
+  if (rc && (saved_uid != geteuid() || saved_gid != getegid())) {
     // try again as root (or whoever saved_uid really is)
     if (saved_uid != geteuid()) 
       seteuid(saved_uid);
