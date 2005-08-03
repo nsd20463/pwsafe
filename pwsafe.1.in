@@ -65,7 +65,7 @@ Edit an entry.
 .TP 
 .B  \-\-delete=NAME
 Delete an entry from database.
-.TP
+.TP 
 If no command is given, an interactive mode is entered.
 .SH "OPTIONS"
 \fBpwsafe\fP accepts the following options:
@@ -119,12 +119,15 @@ Show summary of options.
 Show version of program.
 
 .SH "ENVIRONMENT"
-.TP
+.TP 
+PWSAFE_DATABASE
+Default database file. If this is a relative path it is assumed to be relative to $HOME. Defaults to ".pwsafe.dat". Overridden by \-f.
+.TP 
 PWSAFE_DEFAULT_USER
 Default user. Defaults to $USER or $LOGNAME.
-.TP
+.TP 
 PWSAFE_IGNORE
-Overrides built\-in \-\-ignore list. \-\-ignore overrides. Format is a list of --ignore arguments, seperated by colons (':').
+Overrides built\-in \-\-ignore list. \-\-ignore overrides. Format is a list of \-\-ignore arguments, seperated by colons (':').
 .TP 
 HOME
 Used to locate the default database "~/.pwsafe.dat" and default RANDFILE "~/.rnd".
@@ -173,7 +176,7 @@ Nicolas S. Dade <ndade@nsd.dyndns.org>.
 .SH "REPORTING BUGS"
 Report bugs to <ndade@nsd.dyndns.org>.
 .SH "COPYRIGHT"
-Copyright © 2004-2005 Nicolas S. Dade.
+Copyright © 2004\-2005 Nicolas S. Dade.
 
 This is free software; see the source for copying conditions.  There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A  PARTICULAR PURPOSE.
 .SH "SEE ALSO"

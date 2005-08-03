@@ -742,7 +742,7 @@ void interactive(DB& db) {
         }
 
         if (!arg_dbname) {
-          // $HOME wasn't set and -f wasn't used; we have no idea what we should be opening
+          // $PWSAFE_DATABASE and $HOME weren't set and -f wasn't used; we have no idea what we should be opening
           fprintf(stderr, "$HOME wasn't set; --file must be used\n");
           throw FailEx();
         }
@@ -911,13 +911,20 @@ int main(int argc, char **argv) {
 
       // init some arguments
       {
+        // use $PWSAFE_DATABASE (which might be a full path or just a filename relative to home), and fall back on ".pwsafe.dat"
+        const char* datname = getenv("PWSAFE_DATABASE");
+        if (!datname)
+          datname = ".pwsafe.dat";
+        
         const char* home = getenv("HOME");
-        if (home) {
-          const char* defname = "/.pwsafe.dat";
-          char* dbname = reinterpret_cast<char*>(malloc(strlen(home)+strlen(defname)+1));
+        if (home && datname[0] != '/') {
+          char* dbname = reinterpret_cast<char*>(malloc(strlen(home)+1+strlen(datname)+1));
           strcpy(dbname, home);
-          strcat(dbname, defname);
-          arg_dbname = dbname;
+          strcat(dbname, "/");
+          strcat(dbname, datname);
+        } else {
+          // datname is already an absolute path
+          arg_dbname = datname;
         }
 
 #ifndef X_DISPLAY_MISSING
@@ -961,7 +968,7 @@ int main(int argc, char **argv) {
       }
 
       if (!arg_dbname) {
-        // $HOME wasn't set and -f wasn't used; we have no idea what we should be opening
+          // $PWSAFE_DATABASE and $HOME weren't set and -f wasn't used; we have no idea what we should be opening
         fprintf(stderr, "$HOME wasn't set; --file must be used\n");
         throw FailEx();
       }

@@ -3,6 +3,9 @@
 	* pwsafe: merged in patch for mlock() on redhat
           FC3 that prevented the secure ram from being
           utilized.
+        * pwsafe: added functionality suggested by patch:
+          PWSAFE_DATABASE environment variable overrides
+          default $HOME/.pwsafe.dat
 
 2005-07-31  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
