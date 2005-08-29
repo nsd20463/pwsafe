@@ -922,6 +922,7 @@ int main(int argc, char **argv) {
           strcpy(dbname, home);
           strcat(dbname, "/");
           strcat(dbname, datname);
+          arg_dbname = dbname;
         } else {
           // datname is already an absolute path
           arg_dbname = datname;
