@@ -10,8 +10,8 @@ err=/tmp/merge_test.err$$
 pw=abc
 
 # create a db, and merge test.dat into it
-[ ! -e $file ] || rm $file
-if [ -e $file ]; then
+[ ! -f $file ] || rm $file
+if [ -f $file ]; then
   echo "Can't clean up $file. Please delete it yourself and then rerun this test"
   exit 1
 fi

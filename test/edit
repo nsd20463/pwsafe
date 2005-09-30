@@ -10,8 +10,8 @@ err=/tmp/edit_test.err$$
 pw=abc
 
 # create a new empty database
-[ ! -e $file ] || rm $file
-if [ -e $file ]; then
+[ ! -f $file ] || rm $file
+if [ -f $file ]; then
   echo "Can't clean up $file. Please delete it yourself and then rerun this test"
   exit 1
 fi
@@ -34,7 +34,7 @@ $cmdline 2>$err 1>&2 <<EOF
 $pw
 EOF
 
-if [ $? -ne 1 ] || ! (cat $err | grep 'does_not_exist not found$' >/dev/null ) || ! ( cat $err | grep "$file unchanged\$" >/dev/null ) ; then
+if [ $? -ne 1 -o `cat $err | grep 'does_not_exist not found$' >/dev/null; echo $?` -ne 0 -o `cat $err | grep "$file unchanged\$" >/dev/null; echo $?` -ne 0 ]; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is not properly failing to remove a non-existant entry from $file (passphrase: $pw)."
   echo "Here is the cmdline:"
@@ -54,8 +54,7 @@ abc
 new_name
 new_group
 new_username
-y
-yy
+
 
 y
 EOF

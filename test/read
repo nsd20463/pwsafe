@@ -16,14 +16,14 @@ $pw
 EOF
 `
 
- if ! echo "$out" | grep 'testing$' >/dev/null; then
+ if echo "$out" | grep 'testing$' >/dev/null; then
+   echo OK
+ else
    echo "FAILED!"
    echo "pwsafe is NOT WORKING PROPERLY. It is unable to decrypt $file (passphase: $pw)."
    echo "Here is the output:"
    echo "$out"
    exit 1
- else
-   echo OK
  fi
 }
 
