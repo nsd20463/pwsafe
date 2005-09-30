@@ -3053,12 +3053,12 @@ bool DB::Entry::read(FILE* f, DB::Context& c) {
       if (p != name.npos)
         name = name.substr(0,p+1);
       else
-        name = name.substr(0,0); // nothing left of name
+        name.erase(); // nothing left of name
       p = login.find_first_not_of(' ');
       if (p != login.npos)
         login = login.substr(p,login.npos);
       else
-        login = login.substr(p,p); // nothing left of login
+        login.erase(); // nothing left of login
     }
   }
 
