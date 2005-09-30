@@ -31,6 +31,7 @@ case $1 in
     rm /tmp/$TGZ
 
     # some hosts need custom stuff passed in to ./configure and their environment
+    amd64_linux1_conf="--without-x"
     ppc_osx1_conf="--without-readline --with-openssl-dir=/sw"
     ppc_osx2_conf="--without-readline"
     sparc_solaris1_conf="--without-readline --with-openssl-dir=/usr/local/ssl"
