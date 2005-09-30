@@ -34,7 +34,7 @@ case $1 in
     ppc_osx1_conf="--without-readline --with-openssl-dir=/sw"
     ppc_osx2_conf="--without-readline"
     sparc_solaris1_conf="--without-readline --with-openssl-dir=/usr/local/ssl"
-    sparc_solaris1_env="LD_LIBRARY_PATH=/usr/local/ssl/lib"
+    sparc_solaris1_env="LD_LIBRARY_PATH=/usr/local/ssl/lib PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin"
     x86_freebsd1_make=gmake
     x86_netbsd1_conf="--without-readline --without-x"
     x86_netbsd1_make=gmake
@@ -50,7 +50,7 @@ case $1 in
       if $RSH "rm -rf $DIR \; \
             mkdir -p $DIR \; \
             gunzip <$TGZ | tar xvf - -C $DIR" ; then
-        if $RSH "cd $DIR \; ./configure ${!CONF-}"; then
+        if $RSH "cd $DIR \; ${!ENV-} ./configure ${!CONF-}"; then
           $RSH "cd $DIR \; ${!ENV-} ${!MAKE-make} check"
         fi
       fi
