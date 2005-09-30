@@ -43,9 +43,13 @@ $cmdline 2>$err 1>$out <<EOF
 $pw
 EOF
 
-if [ $? -ne 0 -o "`cat $out`" != \
-"Enter passphrase for $file: # passwordsafe version 2.0 database
-uuid	group	name	login	passwd	notes" ]; then
+RC=$?
+grep <$out "# passwordsafe version 2.0 database" >/dev/null
+RC="$RC$?"
+grep <$out "^uuid	group	name	login	passwd	notes" >/dev/null
+RC="$RC$?"
+
+if [ $RC -ne 0 ]; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is unable to read back $file (passphrase: $pw)."
   echo "Here is the cmdline:"
