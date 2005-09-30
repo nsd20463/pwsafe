@@ -34,7 +34,12 @@ out=`$pwsafe 2>$err --mergedb $srcdir/testv2.dat -f $file <<EOF
 $pw
 EOF
 `
-if [ $? -ne 0 ] || ! (echo "$out" | grep >/dev/null "Merged 1 entries; skipped 0; 0 duplicates." ); then
+
+RC=$?
+echo "$out" | grep >/dev/null "Merged 1 entries; skipped 0; 0 duplicates."
+RC="$RC$?"
+
+if [ $RC -ne 0 ]; then 
   echo "FAILED!"
   echo "Unable to merge testv2.dat into $file"
   echo "Here is the output:"
@@ -51,7 +56,12 @@ out=`$pwsafe 2>$err --mergedb $srcdir/testv2.dat -f $file <<EOF
 $pw
 EOF
 `
-if [ $? -ne 0 ] || ! (echo "$out" | grep >/dev/null "Merged 0 entries; skipped 0; 1 duplicates." ); then
+
+RC=$?
+echo "$out" | grep >/dev/null "Merged 0 entries; skipped 0; 1 duplicates."
+RC="$RC$?"
+
+if [ $RC -ne 0 ]; then
   echo "FAILED!"
   echo "Unable to re-merge testv2.dat into $file"
   echo "Here is the output:"
@@ -68,7 +78,12 @@ $pw
 n
 EOF
 `
-if [ $? -ne 0 ] || ! (echo "$out" | grep >/dev/null "Merged 0 entries; skipped 1; 0 duplicates." ); then
+
+RC=$?
+echo "$out" | grep >/dev/null "Merged 0 entries; skipped 1; 0 duplicates."
+RC="$RC$?"
+
+if [ $RC -ne 0 ]; then
   echo "FAILED!"
   echo "Unable to merge test.dat into $file"
   echo "Here is the output:"
@@ -86,7 +101,12 @@ $pw
 y
 EOF
 `
-if [ $? -ne 0 ] || ! (echo "$out" | grep >/dev/null "Merged 0 entries; skipped 0; 1 duplicates." ); then
+
+RC=$?
+echo "$out" | grep >/dev/null "Merged 0 entries; skipped 0; 1 duplicates."
+RC="$RC$?"
+
+if [ $RC -ne 0 ]; then
   echo "FAILED!"
   echo "Unable to merge $file with itself"
   echo "Here is the output:"

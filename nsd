@@ -41,7 +41,7 @@ case $1 in
     x86_netbsd1_make=gmake
     x86_openbsd1_make=gmake
     x86_solaris1_conf="--with-openssl-dir=/usr/local/ssl"
-    x86_solaris1_env="LD_LIBRARY_PATH=/usr/local/ssl/lib"
+    x86_solaris1_env="LD_LIBRARY_PATH=/usr/local/ssl/lib PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin"
  
     SF_HOSTS="alpha-linux1 amd64-linux1 ppc-osx1 ppc-osx2 sparc-solaris1 x86-freebsd1 x86-linux1 x86-linux2 x86-netbsd1 x86-openbsd1 x86-solaris1"
     [ -z "$2" ] || SF_HOSTS="$2"
