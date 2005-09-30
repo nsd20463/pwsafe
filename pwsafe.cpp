@@ -493,7 +493,7 @@ public:
 
 class DB {
 private:
-  // the file header, which is kept in secalloc just the secstrings
+  // the file header, which is kept in secalloc just like the secstrings
   struct Header {
     unsigned char random[8];
     unsigned char hash[SHA_DIGEST_LENGTH]; // 20
@@ -3048,13 +3048,17 @@ bool DB::Entry::read(FILE* f, DB::Context& c) {
           name = name_login;
         }
       }
-      // and trim any extra whitespace from name and login
+      // and trim any extra whitespace from the end of name and the begining of login
       p = name.find_last_not_of(' ');
       if (p != name.npos)
         name = name.substr(0,p+1);
+      else
+        name = name.substr(0,0); // nothing left of name
       p = login.find_first_not_of(' ');
       if (p != login.npos)
         login = login.substr(p,login.npos);
+      else
+        login = login.substr(p,p); // nothing left of login
     }
   }
 
