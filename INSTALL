@@ -29,7 +29,7 @@ libreadline (which pulls in lib[n]curses) and openssl's libcrypto.
 
 pwsafe builds cleanly on various linuxes (i386, sparc32, sparc64, alpha/debian
 stable, debian unstable, redhat 8.0, 7.2, 6.2) with various g++ versions 
-(3.4.2, 3.3.3, 3.2, 3.1, 2.95, 2.96 and even egcs-2.91).
+(4.0.1, 3.4.2, 3.3.3, 3.2, 3.1, 2.95, 2.96 and even egcs-2.91).
 
 pwsafe builds on NetBSD 1.6.1 if you use --without-readline (or go install libreadline
 first) and gmake.
@@ -42,9 +42,18 @@ pwsafe builds on Solaris if you first install openssl (for libcrypto). If you ha
 openssh you already have openssl somewhere, though you might not have the header
 files. And you need to use --without-readline, or install that as well.
 
+However the shell scripts in test/ do not all work under Solaris. It's not that
+pwsafe is broken, but that my shell scripting skills aren't tuned to Solaris'
+ancient /bin/sh.
+
 pwsafe builds on MacOS X if you use --without-readline (or go install libreadline
 first).
 
+If you get errors on MacOS X when linking with the X libraries, try setting
+    export LDFLAGS="-flat_namespace -undefined suppress"
+before ./configuring. Tiger (and presumably beyond) require "-undefined suppress"
+when "-flat_namespace" is used, but autoconf does not know this so you have to
+add it manually.
 
 
 
