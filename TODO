@@ -11,5 +11,6 @@ don't read entire db into RAM---just decrypt the name and the string lengths.
 --add can be done w/o decrypting any strings!
 
 pwsafe-agent mode (like ssh-agent)? with encrypted string like win32 passwordsafe?
-or will interactive mode be enough?
+or will interactive mode be enough? What about actually using ssh-agent and a
+public key under which the passphrase is stored?
 
