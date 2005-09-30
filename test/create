@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 if [ -z "$srcdir" ]; then
  srcdir=.
@@ -7,6 +7,7 @@ fi
 pwsafe=$srcdir/pwsafe
 file=/tmp/create_test.dat$$
 err=/tmp/create_test.err$$
+out=/tmp/create_test.out$$
 pw=abcdefg
 
 # create a new empty database
@@ -16,43 +17,42 @@ if [ -e $file ]; then
   exit 1
 fi
 
-cat <<EOF
+echo -n "testing creation of new db $file: "
+cmdline="$pwsafe -f $file --createdb"
+$cmdline 2>$err 1>&2 <<EOF
 $pw
 $pw
 EOF
 
-echo -n "testing creation of new db $file: "
-out=`$pwsafe 2>$err --createdb -f $file <<EOF
-$pw
-$pw
-EOF
-`
 if [ $? -ne 0 -o ! -r $file ]; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is unable to create $file (passphase: $pw)."
+  echo "Here is the cmdline:"
+  echo "$cmdline"
   echo "Here is the output:"
-  echo "$out"
   cat $err
   exit 1
 else
   echo OK
 fi
 
-
 # read back new and supposedly empty database
 echo -n "testing readback of new db $file: "
-out=`$pwsafe 2>$err --exportdb -f $file <<EOF
+cmdline="$pwsafe -f $file --exportdb"
+$cmdline 2>$err 1>$out <<EOF
 $pw
 EOF
-`
-if [ $? -ne 0 -o "$out" != \
+
+if [ $? -ne 0 -o "`cat $out`" != \
 "Enter passphrase for $file: # passwordsafe version 2.0 database
 uuid	group	name	login	passwd	notes" ]; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is unable to read back $file (passphrase: $pw)."
+  echo "Here is the cmdline:"
+  echo "$cmdline"
   echo "Here is the output:"
-  echo "$out"
   cat $err
+  cat $out
   exit 1
 else
   echo OK
@@ -60,19 +60,21 @@ fi
 
 # add an entry to the new database
 echo -n "testing adding of an entry to db $file: "
-out=`$pwsafe 2>$err --add -f $file "test group.test name" <<EOF
+cmdline="$pwsafe -f $file --add test_group.test_name"
+$cmdline 2>$err 1>&2 <<EOF
 $pw
-test login
-test pw
-test pw
-test notes
+test_login
+test_pw
+test_pw
+test_notes
 EOF
-`
+
 if [ $? -ne 0 ]; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is unable to add entry to $file (passphrase: $pw)."
+  echo "Here is the cmdline:"
+  echo "$cmdline"
   echo "Here is the output:"
-  echo "$out"
   cat $err
   exit 1
 else
@@ -81,24 +83,29 @@ fi
 
 # read back new entry
 echo -n "testing readback of db $file: "
-out=`$pwsafe 2>$err --exportdb -f $file <<EOF
+cmdline="$pwsafe -f $file --exportdb"
+$cmdline 2>$err 1>$out <<EOF
 $pw
 EOF
-`
-if [ $? -ne 0 ] || ! echo "$out" | grep "........-....-....-....-.............*test group.*test name.*test login.*test pw.*test notes" >/dev/null ; then
+
+if [ $? -ne 0 ] || ! grep <$out \
+"# passwordsafe version 2.0 database
+uuid	group	name	login	passwd	notes
+........-....-....-....-............	test_group	test_name	test_login	test_pw	test_notes" >/dev/null ; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is unable to read back its new entry in $file (passphrase: $pw)."
+  echo "Here is the cmdline:"
+  echo "$cmdline"
   echo "Here is the output:"
-  echo "$out"
+  cat $out
   cat $err
   exit 1
 else
   echo OK
 fi
 
-
 # cleanup after ourselves
-rm $file $file~ $err
+rm $file $file~ $err $out
 
 exit 0
 

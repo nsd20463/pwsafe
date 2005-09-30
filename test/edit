@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 if [ -z "$srcdir" ]; then
  srcdir=.
@@ -29,15 +29,17 @@ fi
 
 # remove a non-existant entry
 echo -n "testing removing an entry that does not exist from $file: "
-out=`$pwsafe 2>$err --delete -f $file does_not_exist <<EOF
+cmdline="$pwsafe -f $file --delete does_not_exist"
+$cmdline 2>$err 1>&2 <<EOF
 $pw
 EOF
-`
+
 if [ $? -ne 1 ] || ! (cat $err | grep 'does_not_exist not found$' >/dev/null ) || ! ( cat $err | grep "$file unchanged\$" >/dev/null ) ; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is not properly failing to remove a non-existant entry from $file (passphrase: $pw)."
+  echo "Here is the cmdline:"
+  echo "$cmdline"
   echo "Here is the output:"
-  echo "$out"
   cat $err
   exit 1
 else
@@ -46,7 +48,8 @@ fi
 
 # edit an existing entry
 echo -n "testing editing 'testing' entry in $file: "
-out=`$pwsafe 2>$err --edit -f $file testing <<EOF
+cmdline="$pwsafe -f $file --edit testing"
+$cmdline 2>$err 1>&2  <<EOF
 abc
 new_name
 new_group
@@ -56,12 +59,13 @@ yy
 
 y
 EOF
-`
+
 if [ $? -ne 0 ]; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is not correctly editing testing entry in $file (passphrase: $pw)."
+  echo "Here is the cmdline:"
+  echo "$cmdline"
   echo "Here is the output:"
-  echo "$out"
   cat $err
   exit 1
 else
@@ -70,15 +74,17 @@ fi
 
 # remove an existing entry
 echo -n "testing removing 'testing' entry from $file: "
-out=`$pwsafe 2>$err --delete -f $file new_group.new_name <<EOF
+cmdline="$pwsafe -f $file --delete new_group.new_name"
+$cmdline 2>$err 1>&2 <<EOF
 $pw
 EOF
-`
+
 if [ $? -ne 0 ]; then
   echo "FAILED!"
   echo "pwsafe is NOT WORKING PROPERLY. It is not removing 'new_group.new_name' entry from $file (passphrase: $pw)."
+  echo "Here is the cmdline:"
+  echo "$cmdline"
   echo "Here is the output:"
-  echo "$out"
   cat $err
   exit 1
 else
