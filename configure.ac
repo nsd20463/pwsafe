@@ -62,6 +62,12 @@ AC_FUNC_MEMCMP
 dnl Check for X
 AC_PATH_XTRA
 
+dnl if this is OS X then we're going to need -flat_namespace -supress undefined in order to build against the X libraries
+dnl and since it doesn't hurt otherwise, always use the option (thanks to Robert)
+case $ac_sys_system/$ac_sys_release in
+  Darwin/*)LDFLAGS="$LDFLAGS -flat_namespace -undefined suppress";;
+esac
+
 dnl Checks for libraries.
 dnl AM_WITH_REGEX
 AC_CHECK_LIB(crypto, SHA1_Init, [], [AC_MSG_ERROR(openssl (libssl) is required)])
