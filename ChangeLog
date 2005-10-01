@@ -3,6 +3,7 @@
 	* pwsafe: corrected trim of name|login when
           name or login were entirely composed of
           whitespace.
+        * pwsafe: release 0.2.0
 
 2005-08-29  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
