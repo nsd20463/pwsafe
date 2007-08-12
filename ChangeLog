@@ -1,9 +1,17 @@
+2006-05-15  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: fix SEGV due to unterminated string
+	  in (too) cheap & dirty readline() replacement.
+	  Thanks to Xavier for testing and reporting it.
+	  The fixed code passes Valgrind and the new unit
+	  test.
+
 2005-09-30  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: corrected trim of name|login when
-          name or login were entirely composed of
-          whitespace.
-        * pwsafe: release 0.2.0
+	  name or login were entirely composed of
+	  whitespace.
+	* pwsafe: release 0.2.0
 
 2005-08-29  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
@@ -34,7 +42,7 @@
 	* pwsafe: reworked test scripts so they
 	  require sh rather than bash2. So now they
 	  run on platforms with only sh. Also made
-	  them work with pwsafe when build with
+	  them work with pwsafe when built with
 	  --disable-readline.
 
 2005-06-11  Nicolas S. Dade  <ndade@nsd.dyndns.org>
