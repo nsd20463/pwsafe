@@ -1,6 +1,6 @@
 # pwsafe.spec
 #
-# Copyright (c) 2004-2005 Nicolas S. Dade ndade@nsd.dyndns.org
+# Copyright (c) 2004-2015 Nicolas S. Dade ndade@nsd.dyndns.org
 #
 %define name pwsafe
 %define version @VERSION@
