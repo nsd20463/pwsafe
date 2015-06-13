@@ -146,7 +146,7 @@ AC_CHECK_TYPE(socklen_t,[AC_DEFINE(HAVE_SOCKLEN_T, 1, [Define to 1 if the type s
 
 
 dnl Checks for library functions.
-AM_SYS_POSIX_TERMIOS
+AC_SYS_POSIX_TERMIOS
 if test "$am_cv_sys_posix_termios" != yes -a "$ac_cv_sys_posix_termios" != yes; then
   AC_MSG_ERROR("POSIX termios operations are required")
 fi
