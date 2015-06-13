@@ -9,15 +9,22 @@ HOW TO BUILD FROM SOURCE TARBALL
    make check     # to be sure it's working
    make install
    
-And for the secure memory allocation to work, pwsafe must be install suid root
+And for the secure (un-swappable) memory allocation to work, pwsafe must be
+install suid root
 
    chown root:root %install_prefix%/bin/pwsafe
    chmod +s %install_prefix%/bin/pwsafe
 
+If it isn't then it uses regular allocations, which might get written to a
+swapfile and be readable from there. It is quite possible that if you are
+this concerned about swapfiles that you are already encrypting yours with
+a random key, and this option isn't as necessary.
 
-HOW TO BUILD FROM CVS
 
-   cd <dir>
+HOW TO BUILD FROM GITHUB
+
+   git clone https://github.com/nsd20463/pwsafe.git
+   cd pwsafe
    aclocal        # generate aclocal.m4
    autoheader     # generate config.h.in from configure.ac
    automake       # generated Makefile.in from Makefile.am
