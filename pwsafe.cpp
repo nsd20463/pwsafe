@@ -945,9 +945,9 @@ int main(int argc, char **argv) {
         if (!ig) ig = "xclipboard:klipper:wmcliphist";
         while (*ig) {
           const char*const q = ig;
-          while (*ig && *ig != ';') ++ig;
+          while (*ig && *ig != ':') ++ig;
           arg_ignore.insert(arg_ignore_t::value_type(q,ig-q));
-          while (*ig == ';') ++ig;
+          while (*ig == ':') ++ig;
         }
       }
 #endif
