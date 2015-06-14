@@ -803,7 +803,11 @@ int main(int argc, char **argv) {
         {
           DB db(arg_dbname);
           try {
-            switch (arg_op) { // NOTE it is correct not to have a OP_NOP and OP_CREATEDB case here. They are handled above in the outer switch and cannot reach this code
+            switch (arg_op) {
+              // NOTE it is correct not to have a OP_NOP and OP_CREATEDB case here. They are handled above in the outer switch and cannot reach this code
+              // however g++ doesn't realize this, and -Wall spits out a warning that those two enum values aren't handled in this switch. So they are here
+              // only to quiet g++, and not because they make any sense in the program flow.
+            case OP_NOP: case OP_CREATEDB: break; // unreachable, but makes g++ -Wall happy
             case OP_EXPORTDB:
               db.exportdb();
               break;
