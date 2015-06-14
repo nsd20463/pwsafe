@@ -24,13 +24,6 @@ if test -n "$with_openssl_dir" && test "$with_openssl_dir" != yes; then
 fi
 
 
-dnl --with-readline or without
-AC_ARG_WITH(readline, AC_HELP_STRING([--with-readline], [use readline for read input (default=yes)]),,with_readline=yes)
-if test "$with_readline" != no; then
-  AC_DEFINE(WITH_READLINE, 1, [Define to 1 to enable use of gnu libreadline for input])
-fi
-
-
 dnl --with-getopt_long or without
 dnl note: there is also a test to see if getopt_long exists. both it and this have to be true for it to be use
 AC_ARG_WITH(getopt_long, AC_HELP_STRING([--with-getopt_long], [use getopt_long to parse arguments (default=yes if available)]),,with_getopt_long=yes)
@@ -72,42 +65,6 @@ esac
 dnl Checks for libraries.
 dnl AM_WITH_REGEX
 AC_CHECK_LIB(crypto, SHA1_Init, [], [AC_MSG_ERROR(openssl (libssl) is required)])
-if test "$with_readline" != no; then
-dnl readline usually needs libncurses, but on some systems (like netbsd) libcurses will do. so pick one and use it
-AC_CHECK_LIB(ncurses, initscr,,)
-AC_CHECK_LIB(curses, initscr,,)
-AC_MSG_CHECKING([if libreadline needs libncurses])
-AC_LINK_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#include <stdio.h>
-#include <readline/readline.h>
-    ]],[[
-  char*x=readline("test"); 
-  return (x?0:1);
-    ]]
-  )],
-  [AC_MSG_RESULT(no)
-    dnl maybe it needs libcurses
-    AC_LINK_IFELSE(
-      [AC_LANG_PROGRAM(
-        [[
-#include <stdio.h>
-#include <readline/readline.h>
-        ]],[[
-      char*x=readline("test");
-      return (x?0:1);
-        ]]
-      )],
-      [AC_MSG_RESULT(no)],
-      [CPPFLAGS="$CPPFLAGS -lcurses"
-       AC_MSG_RESULT(yes)])],
-  [CPPFLAGS="$CPPFLAGS -lncurses"
-   AC_MSG_RESULT(yes)])
-
-
-AC_CHECK_LIB(readline, readline, [], [AC_MSG_ERROR(libreadline can't be found)])
-fi
 
 dnl check for the X libraries
 if test "$have_x" = yes; then
@@ -121,10 +78,6 @@ AC_HEADER_STDC
 AC_CHECK_HEADERS(unistd.h sys/param.h sys/time.h time.h sys/types.h sys/mkdev.h sys/sysmacros.h string.h memory.h fcntl.h dirent.h sys/ndir.h ndir.h alloca.h locale.h fcntl.h signal.h sys/select.h sys/resource.h sys/socket.h sys/un.h sys/mman.h)
 AC_CHECK_HEADERS(stdint.h errno.h termios.h getopt.h)
 AC_CHECK_HEADERS(openssl/sha.h openssl/blowfish.h openssl/rand.h, [], [AC_MSG_ERROR(openssl headers (libssl-dev) are required)])
-if test "$with_readline" != no; then
-AC_CHECK_HEADERS(curses.h, [], [AC_MSG_ERROR(curses.h (lib[n]curses-dev) is required by readline)])
-AC_CHECK_HEADERS(readline/readline.h, [], [AC_MSG_ERROR(readline/readline.h (libreadline-dev) can't be found)])
-fi
 AC_CHECK_HEADERS(netinet/in.h, [], [AC_MSG_ERROR(netinet/in.h is required)])
 if test "$have_x" = yes; then
 AC_CHECK_HEADERS(X11/Xlib.h X11/Xatom.h X11/Xmu/Atoms.h)
@@ -156,142 +109,6 @@ if test "$with_getopt_long" != no; then
 fi
 AC_CHECK_FUNC(tcsetattr, [], [AC_MSG_ERROR(tcsetattr() is needed)])
 AC_CHECK_FUNC(setrlimit, [AC_DEFINE(HAVE_SETRLIMIT, 1, [Define to 1 if setrlimit is supported])], [])
-if test "$with_readline" != no; then
-AC_CHECK_FUNC(readline, [], [AC_MSG_ERROR(readline() is needed)])
-fi
-
-
-if test "$with_readline" != no; then
-dnl older readline.h's declared readline() without any arguments and outside of 'extern "C"', which freaks out C++
-AC_LANG_PUSH(C++)
-AC_MSG_CHECKING([if readline.h needs extern "C"])
-AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#include <stdio.h>
-#include <readline/readline.h>
-    ]],[[
-  char*x=readline("test"); 
-  return (x?0:1);
-    ]]
-  )],
-  [AC_MSG_RESULT(no)], 
-  [AC_DEFINE(READLINE_H_NEEDS_EXTERN_C, 1, [Define to 1 if readline/readline.h needs extern "C"]) 
-   AC_MSG_RESULT(yes)])
-AC_LANG_POP(C++)
-fi
-
-
-if test "$with_readline" != no; then
-dnl slightly newer but still broken readline.h's use extern "C" but don't declare arguments as const
-AC_LANG_PUSH(C++)
-AC_MSG_CHECKING([if readline.h lacks 'const' in its declarations])
-AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#include <stdio.h>
-#if READLINE_H_NEEDS_EXTERN_C
-extern "C" {
-#endif
-#include <readline/readline.h>
-#if READLINE_H_NEEDS_EXTERN_C
-} // terminate extern "C"
-#endif
-
-    ]],[[
-  const char* prompt = "abc";
-  char*x = readline(prompt);
-    ]]
-  )],
-  [AC_MSG_RESULT(no)],
-  [AC_DEFINE(READLINE_H_USES_NO_CONST, 1, [Define to 1 if readline/readline.h doesn't properly declare arguments to be const])
-   AC_MSG_RESULT(yes)])
-AC_LANG_POP(C++)
-fi
-
-if test "$with_readline" != no; then
-dnl some other broken readline.h's use extern "C" and declare arguments for most everything, except for the callback functions
-AC_LANG_PUSH(C++)
-AC_MSG_CHECKING([if readline.h lacks types in its declaration of callbacks])
-AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#include <stdio.h>
-#if READLINE_H_NEEDS_EXTERN_C
-extern "C" {
-#endif
-#include <readline/readline.h>
-#if READLINE_H_NEEDS_EXTERN_C
-} // terminate extern "C"
-#endif
-
-#ifdef READLINE_H_USES_NO_CONST
-char* dummy_completion(char*, int) { return 0; }
-#else
-char* dummy_completion(const char*, int) { return 0; }
-#endif
-    ]],[[
-  rl_completion_entry_function = dummy_completion;
-    ]]
-  )],
-  [AC_MSG_RESULT(no)],
-  [AC_DEFINE(READLINE_H_LACKS_TYPES_FOR_CALLBACKS, 1, [Define to 1 if readline/readline.h lacks proper declarations for callbacks])
-   AC_MSG_RESULT(yes)])
-AC_LANG_POP(C++)
-fi
-
-
-if test "$with_readline" != no; then
-dnl some more readline.h's use extern "C" and declare const arguments, but the completion callback is expected to return int rather than char*
-AC_LANG_PUSH(C++)
-AC_MSG_CHECKING([if readline.h expects completion callbacks to return int])
-AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#include <stdio.h>
-#if READLINE_H_NEEDS_EXTERN_C
-extern "C" {
-#endif
-#include <readline/readline.h>
-#if READLINE_H_NEEDS_EXTERN_C
-} // terminate extern "C"
-#endif
-
-#ifdef READLINE_H_USES_NO_CONST
-int dummy_completion(char*, int) { return 0; }
-#else
-int dummy_completion(const char*, int) { return 0; }
-#endif
-    ]],[[
-  rl_completion_entry_function = dummy_completion;
-    ]]
-  )],
-  [AC_DEFINE(READLINE_H_COMPLETION_RETURNS_INT, 1, [Define to 1 if readline/readline.h completion callback should return int rather than char*])
-   AC_MSG_RESULT(yes)],
-  [AC_MSG_RESULT(no)])
-AC_LANG_POP(C++)
-fi
-
-
-dnl some systems do not supply getline()
-AC_MSG_CHECKING([if getline() is supported])
-AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM(
-    [[
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-#include <stdio.h>
-    ]],[[
-    char* buf = 0;
-    size_t len = 0;
-    getline(&buf,&len,0);
-    ]]
-  )],
-  [AC_DEFINE(HAS_GETLINE, 1, [Define to 1 if getline() is supported])
-   AC_MSG_RESULT(yes)],
-  [AC_MSG_RESULT(no)])
-
 
 
 dnl if we enabled debug, remove the -O2 and add -g; actually I override the -O2 by following it with -O0

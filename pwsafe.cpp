@@ -29,6 +29,7 @@
 #include "config.h"
 #endif
 
+#include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -83,30 +84,6 @@
 
 #include <termios.h>
 
-#if WITH_READLINE
-// fix a few things that system.h setup and that readline.h isn't going to like
-#undef ISDIGIT
-#undef IN_CTYPE_DOMAIN
-#if READLINE_H_NEEDS_EXTERN_C
-extern "C" {
-#endif
-#include <readline/readline.h>
-#if READLINE_H_NEEDS_EXTERN_C
-} // terminate extern "C"
-#endif
-
-#include <curses.h>
-
-#ifdef erase
-// some imbecile C programers #define erase() in [n]curses.h, which breaks std::<container>::erase(...)
-#undef erase
-#endif
-
-#else // WITH_READLINE
-// our cheap substitute for readline
-static char* readline(const char*);
-#endif // WITH_READLINE
-
 #ifndef HAS_GETOPT_LONG
 // our cheap substitute for getopt_long
 // for testing we might have included a getopt.h that did include getopt_long, so
@@ -148,9 +125,6 @@ typedef struct option long_option;
 typedef int socklen_t;
 #endif
 
-#ifndef HAS_GETLINE
-static ssize_t getline(char**,size_t*,FILE*);
-#endif
 
 // ---- secalloc and secstring classes ------------------------------------
 
@@ -634,10 +608,6 @@ int main(int argc, char **argv) {
         seteuid(getuid());
       }
 
-#if WITH_READLINE
-      rl_readline_name = const_cast<char*>(program_name); // so readline() can parse its config files and handle if (pwsafe) sections; some older readline's type rl_readline_name as char*, hence the const_cast
-#endif // WITH_READLINE
-
       // be nice and paranoid
       umask(0077);
 
@@ -919,7 +889,7 @@ static int parse(int argc, char **argv) {
           "v"   // verbose
           "g"   // debug
           "h"   // help
-          "V",	// version
+          "V",  // version
           long_options, (int *) 0)) != EOF)
   {
     switch (c) {
@@ -1105,94 +1075,50 @@ static const char* pwsafe_strerror(int err) {
   }
 }
 
-#if WITH_READLINE
-// there are 5 variations of readline.h out there, each of which needs a different declaration to compile cleanly
-#if READLINE_H_NEEDS_EXTERN_C
-extern "C" {
-  static dummy_completion()
-#elif READLINE_H_LACKS_TYPES_FOR_CALLBACKS
-  static int dummy_completion()
-#elif READLINE_H_USES_NO_CONST
-# if READLINE_H_COMPLETION_RETURNS_INT
-  static int dummy_completion(char*, int)
-# else
-  static char* dummy_completion(char*, int)
-# endif
-#else
-# if READLINE_H_COMPLETION_RETURNS_INT
-  static int dummy_completion(const char*, int)
-# else
-  // FYI this is the declaration which we normally end up picking
-  static char* dummy_completion(const char*, int)
-# endif
-#endif
-  {
-    return 0;
-  }
-#if READLINE_H_NEEDS_EXTERN_C
-} // extern "C"
-#endif
-#endif // WITH_READLINE
-
-// get a password from the user
-static secstring getpw(const char*const prompt) {
-  // turn off echo
+// get input from the user, possibly turning echo off
+static secstring getin(const char * prompt, const secstring& default_, bool echooff)
+{
   struct termios tio;
-  tcgetattr(STDIN_FILENO, &tio);
-  {
-    struct termios new_tio = tio;
-    new_tio.c_lflag &= ~(ECHO);
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_tio); // FLUSH so they don't get into the habit of typing ahead their passphrase
+  if (echooff) {
+    // turn off echo
+    tcgetattr(STDIN_FILENO, &tio);
+    {
+      struct termios new_tio = tio;
+      new_tio.c_lflag &= ~(ECHO);
+      tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_tio); // FLUSH so they don't get into the habit of typing ahead their passphrase
+    }
   }
-#if WITH_READLINE
-  rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
-#endif
-#if READLINE_H_USES_NO_CONST
-  char* x = readline(const_cast<char*>(prompt));
-#else
-  char* x = readline(prompt);
-#endif
+
+  // read line of input
+  std::cout << prompt;
+  std::cout.flush();
+  std::string x;
+  std::getline(std::cin, x);
   // restore echo
-  tcsetattr(STDIN_FILENO, TCSANOW, &tio);
+  if (echooff)
+    tcsetattr(STDIN_FILENO, TCSANOW, &tio);
   // echo a linefeed since the user's <Enter> was not echoed
   printf("\n");
-  // see what readline returned
-  if (x) {
-    secstring xx(x);
-    memset(x,0,strlen(x));
-    free(x);
-    return xx;
+  // do we have a line?
+  if (!std::cin.eof()) {
+    secstring xx(x.c_str(), x.size());
+    x.clear();
+    return xx.empty() ? default_ : xx;
   } else {
     // EOF/^d; abort
     throw FailEx();
   }
-}
-static inline secstring getpw(const std::string& prompt) { return getpw(prompt.c_str()); }
 
-static secstring gettxt(const char*const prompt, const secstring& default_="") {
-#if WITH_READLINE
-  rl_completion_entry_function = dummy_completion; // we don't need readline doing any tab completion (and especially not filenames)
-#endif
-#if READLINE_H_USES_NO_CONST
-  char* x = readline(const_cast<char*>(prompt));
-#else
-  char* x = readline(prompt);
-#endif
-  if (x) {
-    secstring xx(x);
-    memset(x,0,strlen(x));
-    free(x);
-    if (xx.empty())
-      return default_; // since default is also empty by default, this works out nicely when default is not used
-    else
-      return xx;
-  } else {
-    // EOF/^d; abort
-    throw FailEx();
-  }
 }
-static inline secstring gettxt(const std::string& prompt, const secstring& default_="") { return gettxt(prompt.c_str(), default_); }
-static inline secstring gettxt(const secstring& prompt, const secstring& default_="") { return gettxt(prompt.c_str(), default_); }
+
+// get a password from the user
+static secstring getpw(const std::string& prompt) {
+  return getin(prompt.c_str(), "", true);
+}
+
+static secstring gettxt(const secstring& prompt, const secstring& default_="") {
+  return getin(prompt.c_str(), default_, false);
+}
 
 static char get1char(const char*const prompt, const int def_val) {
   struct termios tio;
@@ -3062,72 +2988,6 @@ void* secalloc::reallocate(void* p, size_t old_n, size_t new_n) {
   return new_p;
 }
 
-// ----- cheap readline() substitute for without-readline builds ----------------------
-
-#ifndef WITH_READLINE
-// a cheap function with the same api as the real readline()
-static char* readline(const char* prompt) {
-  printf("%s", prompt);
-  fflush(stdout);
-  
-  static secstring saved;
-  int buflen = saved.length() + 100;
-  int bufpos = saved.length();
-  char* buf = reinterpret_cast<char*>(malloc(buflen+1));
-  if (!buf)
-    throw FailEx();
-  memcpy(buf, saved.data(), saved.length());
-  buf[saved.length()] = '\0';
-
-  while (!strchr(buf,'\n')) {
-    const int rc = ::read(STDIN_FILENO, buf+bufpos, buflen);
-
-    if (rc == -1) {
-      fprintf(stderr, "Error: %s read(STDIN) failed: %s\n", program_name, strerror(errno));
-      memset(buf,0,buflen);
-      free(buf);
-      throw FailEx();
-    }
-
-    bufpos += rc;
-    buf[bufpos] = '\0';
-
-    if (rc == 0) {
-      // EOF (ctrl-D)
-      break;
-    }
-
-    if (bufpos == buflen && !strchr(buf,'\n')) {
-      // we needed a bigger buffer
-      char* new_buf = reinterpret_cast<char*>(malloc(2*buflen+1));
-      if (!new_buf) {
-        fprintf(stderr, "Error: %s out of memory\n", program_name);
-        memset(buf,0,buflen);
-        free(buf);
-        throw FailEx();
-      }
-
-      memcpy(new_buf, buf, bufpos);
-      memset(buf, 0, buflen);
-      free(buf);
-      buf = new_buf;
-      buflen *= 2;
-    }
-  }
-
-  char* lf = strchr(buf,'\n');
-  if (lf) {
-    // save the rest of the input for later
-    saved.assign(lf+1);
-    *lf = '\0';
-  } else {
-    saved.assign("",0);
-  }
-
-  return buf;
-}
-#endif // WITH_READLINE
-
 // --- cheap getopt_long() substitute ----------------------------------------------------------
 
 #ifndef HAS_GETOPT_LONG
@@ -3168,39 +3028,4 @@ static int getopt_long(int argc, char*const argv[], const char* short_opts, cons
   return '?';
 }
 #endif // HAS_GETOPT_LONG
-
-#ifndef HAS_GETLINE
-// a cheap substitute
-static ssize_t getline(char** bufp,size_t* buflenp,FILE* file) {
-  char* buf = *bufp;
-  size_t buflen = *buflenp;
-  ssize_t len = 0;
-
-  if (!buf) {
-    if (buflen == 0) buflen = 128;
-    buf = reinterpret_cast<char*>(malloc(buflen));
-    if (!buf) return -1;
-    *bufp = buf; 
-    *buflenp = buflen;
-  }
-
-  while (true) {
-    if (!fgets(buf+len, buflen-len, file))
-      break; // we've reached EOF
-    
-    len += strlen(buf+len);
-    if (buf[len-1] == '\n')
-      break; // we've reached a \n
-     
-    // we need a bigger buffer
-    buflen *= 2;
-    buf = reinterpret_cast<char*>(realloc(buf,buflen));
-    if (!buf) return -1;
-    *bufp = buf; 
-    *buflenp = buflen;
-  }
-
-  return len;
-}
-#endif // HAS_GETLINE
 
