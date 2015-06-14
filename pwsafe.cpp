@@ -1341,7 +1341,7 @@ static void usage(bool fail) {
 #ifndef X_DISPLAY_MISSING
         "  -x, --xclip                force copying of entry to X selection\n"
         "  -d, --display=XDISPLAY     override $DISPLAY (implies -x)\n"
-        "  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x)\n"
+        "  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x). Default is both primary and clipboard.\n"
         "  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard, wmcliphist and klipper)\n"
 #endif
         "  -q, --quiet                print no extra information\n"
