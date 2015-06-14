@@ -73,10 +73,21 @@ dnl Checks for libraries.
 dnl AM_WITH_REGEX
 AC_CHECK_LIB(crypto, SHA1_Init, [], [AC_MSG_ERROR(openssl (libssl) is required)])
 if test "$with_readline" != no; then
-dnl readline usually needs libncurses, but on some systems (like netbsd) libcurses will do. so pick one and use it
-AC_CHECK_LIB(ncurses, initscr,,)
-AC_CHECK_LIB(curses, initscr,,)
-AC_MSG_CHECKING([if libreadline needs libncurses])
+dnl look for libncurses, fall back to libcurses if it's not found
+AC_CHECK_LIB(ncurses, initscr,
+			 LIBS="$LIBS -lncurses"
+			 HAVE_LIBNCURSES=
+			 ,
+			 AC_CHECK_LIB(curses, initscr,
+						  LIBS="$LIBS -lcurses"
+						  HAVE_LIBCURSES=
+						  ,
+						  AC_MSG_RESULT(no)
+						  )
+			 )
+AC_CHECK_LIB(readline, readline, [], [AC_MSG_ERROR(libreadline cannot be found)])
+dnl make sure libreadline works with the lib[n]curses we found
+AC_MSG_CHECKING([if libreadline works with curses])
 AC_LINK_IFELSE(
   [AC_LANG_PROGRAM(
     [[
@@ -87,26 +98,9 @@ AC_LINK_IFELSE(
   return (x?0:1);
     ]]
   )],
-  [AC_MSG_RESULT(no)
-    dnl maybe it needs libcurses
-    AC_LINK_IFELSE(
-      [AC_LANG_PROGRAM(
-        [[
-#include <stdio.h>
-#include <readline/readline.h>
-        ]],[[
-      char*x=readline("test");
-      return (x?0:1);
-        ]]
-      )],
-      [AC_MSG_RESULT(no)],
-      [CPPFLAGS="$CPPFLAGS -lcurses"
-       AC_MSG_RESULT(yes)])],
-  [CPPFLAGS="$CPPFLAGS -lncurses"
-   AC_MSG_RESULT(yes)])
-
-
-AC_CHECK_LIB(readline, readline, [], [AC_MSG_ERROR(libreadline can't be found)])
+  [AC_MSG_RESULT(yes)],
+  [AC_MSG_ERROR(no)]
+)
 fi
 
 dnl check for the X libraries
