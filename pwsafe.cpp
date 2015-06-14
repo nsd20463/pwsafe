@@ -2111,7 +2111,7 @@ static secstring xmlescape(const secstring& s) {
       case '"': out += "&quot;"; break;
       case '&': out += "&amp;"; break;
       case '<': out += "&lt;"; break;
-      case '>': out += "&gt"; break;
+      case '>': out += "&gt;"; break;
       case '\\': out += "\\\\"; break;
       default: out += c;
     }
