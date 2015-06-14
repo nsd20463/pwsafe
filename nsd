@@ -83,7 +83,7 @@ case $1 in
       # and build from the tarball while making the archival copy of pwsafe-$VER
       mkdir $DIR/testbuild && \
       tar xzvf $TGZ -C $DIR/testbuild && \
-      ( cd $DIR/testbuild/$DIR && ./configure --program-suffix=$VER && make && strip pwsafe && ln pwsafe pwsafe-$VER; )
+      ( cd $DIR/testbuild/$DIR && ./configure --program-suffix=$VER && make V=0 CXXFLAGS="-Wall -Werror" && strip pwsafe && ln pwsafe pwsafe-$VER; )
       exit $?
     else
       exit 1
