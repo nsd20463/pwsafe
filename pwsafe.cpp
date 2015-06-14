@@ -661,7 +661,7 @@ int main(int argc, char **argv) {
         }
 
 #ifndef X_DISPLAY_MISSING
-        if (isatty(STDOUT_FILENO) && (arg_display = XDisplayName(NULL)))
+        if (isatty(STDOUT_FILENO) && (arg_display = XDisplayName(NULL)) && strlen(arg_display))
           arg_xclip = true;
         else
 #endif
