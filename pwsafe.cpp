@@ -1356,7 +1356,7 @@ static secstring random_password() {
     snprintf(ent_buf, sizeof(ent_buf), "%d", entropy_needed);
     ent_buf[sizeof(ent_buf)-1] = '\0';
     char len_buf[24];
-    snprintf(len_buf, sizeof(len_buf), "%d", pw.length());
+    snprintf(len_buf, sizeof(len_buf), "%d", static_cast<int>(pw.length()));
     len_buf[sizeof(len_buf)-1] = '\0';
     switch (tolower(get1char("Use "+pw+"\ntype "+type_name+", length "+len_buf+", "+ent_buf+" bits of entropy [y/N/ /+/-/q/?] ? ", 'n'))) {
       case 'y':
@@ -2120,7 +2120,7 @@ bool DB::open(const secstring* pw_to_try) {
     version = VERSION_1_7;
   }
  
-  if (arg_verbose > 1) printf("read in %u entries\n", entries.size());
+  if (arg_verbose > 1) printf("read in %u entries\n", static_cast<unsigned int>(entries.size()));
 
   opened = true;
   return true;
@@ -2341,7 +2341,7 @@ const DB::Entry& DB::find1(const char* regex) {
       for (matches_t::const_iterator i=matches.begin(); i!=matches.end() && count < 3; ++i, ++count)
         printf("%s%s", (count?", ":""), (*i)->groupname().c_str());
       if (count != matches.size())
-        printf(", ... (%u more) ", matches.size()-3);
+        printf(", ... (%u more) ", static_cast<unsigned int>(matches.size()-3));
       printf(".\n");
       throw FailEx();
     }
@@ -2377,7 +2377,7 @@ void DB::list(const char* regex /* might be NULL */) {
             // print out the UUID too
             fprintf(outfile, "%s\n", formatuuid(e.uuid).c_str());
           if (!e.extras.empty())
-            fprintf(outfile, "and %u unknown extra fields\n", e.extras.size());
+            fprintf(outfile, "and %u unknown extra fields\n", static_cast<unsigned int>(e.extras.size()));
         }
       } else
         // just print out the name
