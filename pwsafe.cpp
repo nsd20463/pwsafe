@@ -803,7 +803,7 @@ int main(int argc, char **argv) {
         {
           DB db(arg_dbname);
           try {
-            switch (arg_op) {
+            switch (arg_op) { // NOTE it is correct not to have a OP_NOP and OP_CREATEDB case here. They are handled above in the outer switch and cannot reach this code
             case OP_EXPORTDB:
               db.exportdb();
               break;
