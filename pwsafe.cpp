@@ -746,9 +746,9 @@ int main(int argc, char **argv) {
         outfile = fopen(arg_output,"w");
       } else if (!isatty(STDOUT_FILENO) && isatty(STDERR_FILENO)) {
         // if stdout is not a tty but stderr is, use stderr to interact with the user, but still write the output to stdout
-        dup2(STDOUT_FILENO,3);
+        int outfd = dup(STDOUT_FILENO);
         dup2(STDERR_FILENO,STDOUT_FILENO);
-        outfile = fdopen(3,"w");
+        outfile = fdopen(outfd,"w");
       } else {
         // use stdout
         outfile = fdopen(dup(STDOUT_FILENO),"w");
