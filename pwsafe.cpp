@@ -367,8 +367,6 @@ secstring operator+(const secstring& t1, char c) {
   
 // ------ end of fixups for various systems; on to the real program ------
 
-//#define INTERACTIVE_MODE // enable experimental interactive mode
-
 // The name the program was run with, stripped of any leading path
 const char *program_name = "pwsafe"; // make sure program_name always points to something valid so we can use it in constructors of globals
 uid_t saved_uid;
@@ -385,9 +383,6 @@ const char* arg_mergedb = NULL;
 const char* arg_name = NULL;
 enum OP { 
   OP_NOP, OP_CREATEDB, OP_EXPORTDB, OP_MERGEDB, OP_PASSWD, OP_LIST, OP_EMIT, OP_ADD, OP_EDIT, OP_DELETE, 
-#ifdef INTERACTIVE_MODE
-  OP_INTERACT,
-#endif
 };
 OP arg_op = OP_NOP;
 //const char* arg_config = NULL;
@@ -420,9 +415,6 @@ static long_option const long_options[] =
   {"add", no_argument, 0, 'a'},
   {"edit", no_argument, 0, 'e'},
   {"delete", no_argument, 0, 'D'},
-#ifdef INTERACTIVE_MODE
-  {"interact", no_argument, 0, 'I'&31},
-#endif
   // options
 //  {"config", required_argument, 0, 'F'},
   {"file", required_argument, 0, 'f'},
@@ -623,267 +615,6 @@ public:
 };
 
 
-#ifdef INTERACTIVE_MODE
-void interactive(DB& db) {
-
-  if (!db.open())
-    throw FailEx();
-  
-  const char* db_shortname = strrchr(db.dbname, '/');
-  if (!db_shortname)
-    db_shortname = db.dbname;
-  else
-    db_shortname++;
-
-  char* cmdline = NULL;
-  size_t cmdline_buflen = 0;
-  
-  while (true) {
-    printf("pwsafe:%s> ",db_shortname);
-    fflush(stdout);
-    ssize_t cmdlen = getline(&cmdline, &cmdline_buflen, stdin);
-    if (cmdlen == -1)
-      throw ExitEx(1);
-
-    // break cmdline into argc/argv
-    int argc = 1;
-    int argv_len = 1;
-    char** argv = reinterpret_cast<char**>(malloc(sizeof(argv[0])*(argv_len+1))); // +1 for terminating NULL
-    if (!argv) {
-      free(cmdline);
-      throw ExitEx(1);
-    }
-    argv[0] = "pwsafe";
-    {
-      char* p = cmdline;
-      while (p-cmdline < cmdlen && *p != '\0' && *p != '\n') {
-        // advance to the next non-blank char
-        while (p-cmdline < cmdlen && *p != '\0' && *p != '\n' && isspace(*p))
-          ++p;
-        // if we reached the end, stop
-        if (p-cmdline >= cmdlen || *p == '\0' || *p == '\n')
-          break;
- 
-        // make sure there's room in argv[argc]
-        if (argc >= argv_len) {
-          int new_argv_len = argv_len*2;
-          char** new_argv = reinterpret_cast<char**>(realloc(argv,sizeof(argv[0]) * (new_argv_len+1))); // +1 for terminating NULL
-          if (!new_argv) {
-            free(argv);
-            free(cmdline);
-            throw ExitEx(1);
-          }
-          argv = new_argv;
-          argv_len = new_argv_len;
-        }
-
-        { // terminate the argument, and handle enclosing "" and '' too, as well as \ sequences
-          char terminator = ' ';
-          if (*p == '\'' || *p == '"') 
-            terminator = *p++;
-          char* q = p;
-          
-          argv[argc++] = p;
-
-          while (p-cmdline < cmdlen && *p != '\0' && *p != '\n' && *p != terminator) {
-            if (*p == '\\') {
-              p++;
-              if (p-cmdline >= cmdlen || *p == '\0' || *p == '\n')
-                break;
-            }
-            *q++ = *p++;
-          }
-          // q points just beyond the last char
-          
-          // skip over the final "" or ''
-          if (p-cmdline < cmdlen && *p == terminator)
-            ++p;
-          
-          // terminate the string (which might overwrite the final "" or '')
-          *q = '\0';
-        }
-      }
-      // terminate argv; getopt_long() expects this
-      argv[argc] = NULL;
-    } 
-
-    // reset some args to default values
-    arg_mergedb = NULL;
-    arg_name = NULL;
-    arg_op = OP_NOP;
-    arg_casesensative = false;
-    arg_echo = false;
-    arg_output = NULL;
-    arg_username = false;
-    arg_password = false;
-    arg_details = false;
-  #ifndef X_DISPLAY_MISSING
-    arg_xclip = false;
-    arg_selection = "both"; // by default copy to primary X selection and clipboard
-    // leave arg_ignore alone
-  #endif
-
-    // now execute argv
-    try {
-      try {
-        int idx = parse(argc, argv);
-     
-        if (arg_op == OP_LIST && (arg_username || arg_password))
-          // this is actually an OP_EMIT and not an OP_LIST
-          arg_op = OP_EMIT;
-        
-        if (idx != argc) {
-          if ((arg_op == OP_LIST || arg_op == OP_EMIT || arg_op == OP_ADD || arg_op == OP_EDIT || arg_op == OP_DELETE) && idx+1 == argc) {
-            arg_name = argv[idx];
-          } else {
-            fprintf(stderr, "%s - Too many arguments\n", program_name);
-            usage(true);
-          }
-        }
-
-        if (!arg_dbname) {
-          // $PWSAFE_DATABASE and $HOME weren't set and -f wasn't used; we have no idea what we should be opening
-          fprintf(stderr, "$HOME wasn't set; --file must be used\n");
-          throw FailEx();
-        }
-
-        if (!arg_name && (arg_op == OP_EMIT || arg_op == OP_EDIT || arg_op == OP_DELETE)) {
-          fprintf(stderr, "An entry must be specified\n");
-          throw FailEx();
-        }
-
-        if (arg_name && !arg_casesensative) {
-          // automatically be case sensative of arg_name contains any uppercase chars
-          const char* p = arg_name;
-          while (*p)
-            if (isupper(*p++)) {
-              arg_casesensative = true;
-              break;
-            }
-        }
-
-  #ifndef X_DISPLAY_MISSING
-        if (arg_xclip && !XDisplayName(arg_display)) {
-          fprintf(stderr, "$DISPLAY isn't set; use --display\n");
-          throw FailEx();
-        }
-  #endif
-
-        // mess around with stdout and outfile so they are intelligently selected
-        // what we want is usages like "pwsafe | less" to work correctly
-        if (arg_output) {
-          outfile = fopen(arg_output,"w");
-        } else if (!isatty(STDOUT_FILENO) && isatty(STDERR_FILENO)) {
-          // if stdout is not a tty but stderr is, use stderr to interact with the user, but still write the output to stdout
-          dup2(STDOUT_FILENO,3);
-          dup2(STDERR_FILENO,STDOUT_FILENO);
-          outfile = fdopen(3,"w");
-        } else {
-          // use stdout
-          outfile = fdopen(dup(STDOUT_FILENO),"w");
-        }
-        if (!outfile) {
-          fprintf(stderr, "Can't open %s: %s\n", arg_output, strerror(errno));
-          throw FailEx();
-        }
-        // from this point on stdout points to something we can interact with the user on, and outfile points to where we should put our output
-   
-
-  #ifndef X_DISPLAY_MISSING
-        if (arg_verbose >= 0 && (arg_password || arg_username) && (arg_echo || arg_xclip))
-          printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
-  #else
-        if (arg_verbose >= 0 && (arg_password || arg_username) && (arg_echo))
-          printf("Going to print %s to stdout\n", arg_password&&arg_username?"login and password":arg_password?"password":"login");
-  #endif
-
-        switch (arg_op) {
-        case OP_EXPORTDB:
-        case OP_MERGEDB:
-        case OP_PASSWD:
-        case OP_LIST:
-        case OP_EMIT:
-        case OP_ADD:
-        case OP_EDIT:
-        case OP_DELETE:
-          {
-            try {
-              switch (arg_op) {
-              case OP_EXPORTDB:
-                db.exportdb();
-                break;
-              case OP_MERGEDB:
-                {
-                  DB db2(arg_mergedb);
-                  db.mergedb(db2);
-                }
-                break;
-              case OP_PASSWD:
-                db.passwd();
-                break;
-              case OP_LIST:
-                db.list(arg_name);
-                break;
-              case OP_EMIT:
-                db.emit(arg_name, arg_username, arg_password);
-                break;
-              case OP_ADD:
-                db.add(arg_name);
-                if (!arg_name) {
-                  // let them add more than one without having to reenter the passphrase
-                  while (getyn("Add another? [n] ", false))
-                    db.add(NULL);
-                }
-                break;
-              case OP_EDIT:
-                db.edit(arg_name);
-                break;
-              case OP_DELETE:
-                db.del(arg_name);
-                break;
-              }
-
-              // backup and save if changes have occured
-              if (db.is_changed()) {
-                if (arg_verbose > 0) printf("saving changes to %s\n", db.dbname);
-                if (!(db.backup() && db.save()))
-                  throw FailEx();
-              }
-                
-            } catch (const FailEx&) {
-              // try and restore database from backup if a backup was successfully created
-              db.restore();
-              throw;
-            }
-          }
-          break;
-        }
-
-        // first try and close outfile with error checking
-        if (outfile) {
-          if (fclose(outfile)) {
-            fprintf(stderr, "Can't write/close output: %s", strerror(errno));
-            outfile = NULL;
-            throw FailEx();
-          }
-          outfile = NULL;
-        }
-
-        // and we are done
-        throw ExitEx(0);
-        
-      } catch (const FailEx&) {
-        throw ExitEx(1);
-      }
-    } catch (const ExitEx& ex) {
-      if (outfile)
-        fclose(outfile);
-      break;
-    }
-  }
-}
-#endif // INTERACTIVE_MODE
-
 int main(int argc, char **argv) {
   program_name = strrchr(argv[0], '/');
   if (!program_name)
@@ -1056,18 +787,10 @@ int main(int argc, char **argv) {
       case OP_ADD:
       case OP_EDIT:
       case OP_DELETE:
-#ifdef INTERACTIVE_MODE
-      case OP_INTERACT:
-#endif
         {
           DB db(arg_dbname);
           try {
             switch (arg_op) {
-#ifdef INTERACTIVE_MODE
-            case OP_INTERACT:
-              interactive(db);
-              break;
-#endif
             case OP_EXPORTDB:
               db.exportdb();
               break;
@@ -1232,14 +955,6 @@ static int parse(int argc, char **argv) {
         else
           usage(true);
         break;
-#ifdef INTERACTIVE_MODE
-      case 'I'&31:
-        if (arg_op == OP_NOP)
-          arg_op = OP_INTERACT;
-        else
-          usage(true);
-        break;
-#endif
 //      case 'F':
 //        arg_config = optarg;
 //        break;
