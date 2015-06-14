@@ -1102,16 +1102,25 @@ static const char* pwsafe_strerror(int err) {
 }
 
 #if WITH_READLINE
-// there are 4 variations of readline.h out there, each of which needs a different declaration to compile cleanly
+// there are 5 variations of readline.h out there, each of which needs a different declaration to compile cleanly
 #if READLINE_H_NEEDS_EXTERN_C
 extern "C" {
   static dummy_completion()
 #elif READLINE_H_LACKS_TYPES_FOR_CALLBACKS
   static int dummy_completion()
 #elif READLINE_H_USES_NO_CONST
+# if READLINE_H_COMPLETION_RETURNS_INT
+  static int dummy_completion(char*, int)
+# else
   static char* dummy_completion(char*, int)
+# endif
 #else
+# if READLINE_H_COMPLETION_RETURNS_INT
+  static int dummy_completion(const char*, int)
+# else
+  // FYI this is the declaration which we normally end up picking
   static char* dummy_completion(const char*, int)
+# endif
 #endif
   {
     return 0;

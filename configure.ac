@@ -241,6 +241,38 @@ AC_LANG_POP(C++)
 fi
 
 
+if test "$with_readline" != no; then
+dnl some more readline.h's use extern "C" and declare const arguments, but the completion callback is expected to return int rather than char*
+AC_LANG_PUSH(C++)
+AC_MSG_CHECKING([if readline.h expects completion callbacks to return int])
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM(
+    [[
+#include <stdio.h>
+#if READLINE_H_NEEDS_EXTERN_C
+extern "C" {
+#endif
+#include <readline/readline.h>
+#if READLINE_H_NEEDS_EXTERN_C
+} // terminate extern "C"
+#endif
+
+#ifdef READLINE_H_USES_NO_CONST
+int dummy_completion(char*, int) { return 0; }
+#else
+int dummy_completion(const char*, int) { return 0; }
+#endif
+    ]],[[
+  rl_completion_entry_function = dummy_completion;
+    ]]
+  )],
+  [AC_DEFINE(READLINE_H_COMPLETION_RETURNS_INT, 1, [Define to 1 if readline/readline.h completion callback should return int rather than char*])
+   AC_MSG_RESULT(yes)],
+  [AC_MSG_RESULT(no)])
+AC_LANG_POP(C++)
+fi
+
+
 dnl some systems do not supply getline()
 AC_MSG_CHECKING([if getline() is supported])
 AC_COMPILE_IFELSE(
