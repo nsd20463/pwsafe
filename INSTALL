@@ -1,5 +1,14 @@
 	pwsafe - commandline tool compatible with Counterpane's Passwordsafe
 
+DEPENDENCIES
+
+To build pwsafe you'll need the header files for X11, libreadline (which
+pulls in lib[n]curses) and openssl's libcrypto. On debian this should get
+you most of the way there:
+
+   apt-get install libx11-dev libxmu-dev libreadline-dev libssl-dev
+
+
 HOW TO BUILD FROM SOURCE TARBALL
 
    tar xzf <tarball>
@@ -15,10 +24,11 @@ install suid root
    chown root:root %install_prefix%/bin/pwsafe
    chmod +s %install_prefix%/bin/pwsafe
 
-If it isn't then it uses regular allocations, which might get written to a
-swapfile and be readable from there. It is quite possible that if you are
-this concerned about swapfiles that you are already encrypting yours with
-a random key, and this option isn't as necessary.
+If this isn't done then pwsafe uses regular memory allocations, which
+might get written to a swapfile and be readable from there at a later
+date. Of course it is quite possible that if you are this concerned about
+swapfiles that you are already encrypting yours with a random key, and
+this option isn't as necessary.
 
 
 HOW TO BUILD FROM GITHUB
@@ -31,21 +41,31 @@ HOW TO BUILD FROM GITHUB
    autoconf                # generate configure from configure.ac
    ./configure             # etc...; from here on you're on your own
 
-You'll need autoconf 2.5 or better, as well as the header files for X11,
-libreadline (which pulls in lib[n]curses) and openssl's libcrypto.
+You'll need autoconf 2.5 or better, and automake. On debian this should
+get you most of the way there:
 
-pwsafe builds cleanly on various linuxes (i386, sparc32, sparc64, alpha/debian
-stable, debian unstable, redhat 8.0, 7.2, 6.2) with various g++ versions 
-(4.0.1, 3.4.2, 3.3.3, 3.2, 3.1, 2.95, 2.96 and even egcs-2.91).
+   apt-get install automake autoconf gcc 
 
-pwsafe builds on NetBSD 1.6.1 if you use --without-readline (or go install libreadline
+
+SUPPORTED ENVIRONMENTS
+
+Because I no longer have access to a large variety of systems I cannot
+verify that pwsafe builds on much more than a modern linux. However I
+haven't done anything deliberate to break what used to work.
+
+Older versions of pwsafe (up to and including 0.2.0+fixes) built cleanly
+on various linuxes (i386, amd64, sparc32, sparc64, alpha/debian stable,
+debian unstable, redhat 8.0, 7.2, 6.2) with various g++ versions (4.0.1,
+3.4.2, 3.3.3, 3.2, 3.1, 2.95, 2.96 and even egcs-2.91).
+
+pwsafe built on NetBSD 1.6.1 if you use --without-readline (or go install libreadline
 first) and gmake.
 
-pwsafe builds on FreeBSD 4.9 if you use gmake.
+pwsafe built on FreeBSD 4.9 if you use gmake.
 
-pwsafe builds fine on OpenBSD 3.4.
+pwsafe built fine on OpenBSD 3.4.
 
-pwsafe builds on Solaris if you first install openssl (for libcrypto). If you have
+pwsafe built on Solaris if you first install openssl (for libcrypto). If you have
 openssh you already have openssl somewhere, though you might not have the header
 files. And you need to use --without-readline, or install that as well.
 
@@ -53,7 +73,7 @@ However the shell scripts in test/ do not all work under Solaris. It's not that
 pwsafe is broken, but that my shell scripting skills aren't tuned to Solaris'
 ancient /bin/sh.
 
-pwsafe builds on MacOS X if you use --without-readline (or go install libreadline
+pwsafe built on MacOS X if you use --without-readline (or go install libreadline
 first).
 
 If you get errors on MacOS X when linking with the X libraries, try setting
