@@ -25,11 +25,11 @@ HOW TO BUILD FROM GITHUB
 
    git clone https://github.com/nsd20463/pwsafe.git
    cd pwsafe
-   aclocal        # generate aclocal.m4
-   autoheader     # generate config.h.in from configure.ac
-   automake       # generated Makefile.in from Makefile.am
-   autoconf       # generate configure from configure.ac
-   ./configure    # etc...; from here on you're on your own
+   aclocal                 # generate aclocal.m4
+   autoheader              # generate config.h.in from configure.ac
+   automake --add-missing  # generated Makefile.in from Makefile.am
+   autoconf                # generate configure from configure.ac
+   ./configure             # etc...; from here on you're on your own
 
 You'll need autoconf 2.5 or better, as well as the header files for X11,
 libreadline (which pulls in lib[n]curses) and openssl's libcrypto.
