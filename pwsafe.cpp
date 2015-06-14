@@ -402,6 +402,7 @@ const char* arg_selection = "both"; // by default copy to primary X selection an
 typedef std::set<std::string> arg_ignore_t;
 arg_ignore_t arg_ignore;
 static Display* xdisplay = NULL;
+const char* xsel_names = NULL;
 #endif
 
 static long_option const long_options[] =
@@ -725,6 +726,18 @@ int main(int argc, char **argv) {
         fprintf(stderr, "$DISPLAY isn't set; use --display\n");
         throw FailEx();
       }
+
+      // map arg_selection to a descriptive text string
+      // NOTE this must match the similar code in emit()
+      switch (tolower(arg_selection[0])) {
+        case 'b': case '0': xsel_names = "both X primary selection and clipboard"; break;
+        case 'p': case '1': xsel_names = "X primary selection"; break;
+        case 's': case '2': xsel_names = "X secondary selection"; break;
+        case 'c': xsel_names = "clipboard"; break;
+        default:
+          fprintf(stderr,"Unsupported selection: %s\n", arg_selection);
+          throw FailEx();
+      }
 #endif
 
       // mess around with stdout and outfile so they are intelligently selected
@@ -764,7 +777,7 @@ int main(int argc, char **argv) {
 
 #ifndef X_DISPLAY_MISSING
       if (arg_verbose >= 0 && (arg_password || arg_username) && (arg_echo || arg_xclip))
-        printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?"X selection":"stdout");
+        printf("Going to %s %s to %s\n", arg_xclip?"copy":"print", arg_password&&arg_username?"login and password":arg_password?"password":"login", arg_xclip?xsel_names:"stdout");
 #else
       if (arg_verbose >= 0 && (arg_password || arg_username) && (arg_echo))
         printf("Going to print %s to stdout\n", arg_password&&arg_username?"login and password":arg_password?"password":"login");
@@ -1414,12 +1427,14 @@ static void emit(const secstring& name, const char*const what, const secstring& 
       throw FailEx();
     }
 
-    static const Atom CLIPBOARD = XA_CLIPBOARD(xdisplay); // optimize by fetching this one only once
+    const Atom CLIPBOARD = XA_CLIPBOARD(xdisplay); // optimize by fetching this one only once
 
-    Atom xsel1 = 0, xsel2 = 0;
-    int num_sel = 1;
+    Atom xsel1 = 0, xsel2 = 0; // X11 Atom representing X selections and clipboard
+    int num_xsel = 1; // number of valid xsel*
+
+    // map arg_selection to X11 Atom(s)
     switch (tolower(arg_selection[0])) {
-      case 'b': case '0': xsel1 = XA_PRIMARY; xsel2 = CLIPBOARD; num_sel = 2; break;
+      case 'b': case '0': xsel1 = XA_PRIMARY; xsel2 = CLIPBOARD; num_xsel = 2; break;
       case 'p': case '1': xsel1 = XA_PRIMARY; break;
       case 's': case '2': xsel1 = XA_SECONDARY; break;
       case 'c': xsel1 = CLIPBOARD; break;
@@ -1427,6 +1442,7 @@ static void emit(const secstring& name, const char*const what, const secstring& 
         fprintf(stderr,"Unsupported selection: %s\n", arg_selection);
         throw FailEx();
     }
+
     char* stxt1 = XGetAtomName(xdisplay,xsel1);
     char* stxt2 = (xsel2?XGetAtomName(xdisplay,xsel2):NULL);
 
@@ -1492,7 +1508,7 @@ static void emit(const secstring& name, const char*const what, const secstring& 
             if (xsel2 && XGetSelectionOwner(xdisplay, xsel2) != xwin) {
               fprintf(stderr, "Unable to own X selection %s\n", stxt2);
               xsel2 = 0;
-              num_sel--;
+              num_xsel--;
             }
             if (XGetSelectionOwner(xdisplay, xsel1) != xwin) {
               fprintf(stderr, "Unable to own X selection %s\n", stxt1);
@@ -1500,7 +1516,7 @@ static void emit(const secstring& name, const char*const what, const secstring& 
               if (stxt1) XFree(stxt1);
               stxt1 = stxt2;
               xsel2 = 0; stxt2 = NULL;
-              num_sel--;
+              num_xsel--;
             }
 
             // let the user know
@@ -1669,7 +1685,7 @@ static void emit(const secstring& name, const char*const what, const secstring& 
 
     tcsetattr(STDIN_FILENO, TCSANOW, &tio);
 
-    if (arg_verbose > 1) printf("X selection%s cleared\n",(num_sel>1?"s":""));
+    if (arg_verbose > 1) printf("X selection%s cleared\n",(num_xsel>1?"s":""));
 
     if (stxt1) XFree(stxt1);
     if (stxt2) XFree(stxt2);
