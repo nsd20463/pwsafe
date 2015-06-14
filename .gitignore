@@ -1,0 +1,17 @@
+.deps
+Makefile
+Makefile.in
+aclocal.m4
+compile
+config.h
+config.h.in
+config.log
+config.status
+configure
+pwsafe
+pwsafe.1
+pwsafe.lsm
+pwsafe.o
+pwsafe.spec
+stamp-h1
+test-driver
