@@ -4,7 +4,7 @@
 case $1 in
   configure)
     # rebuild configure and *.in after changing configure.ac
-    aclocal && autoheader && automake && autoconf && ./configure --enable-debug
+    aclocal && autoheader && automake --add-missing && autoconf && ./configure --enable-debug
     exit $?
     ;;
   prep)
@@ -73,15 +73,15 @@ case $1 in
     ;;
   release)
     # tar up a release
-    VER=`awk <configure.ac '/^AM_INIT_AUTOMAKE/ { print $2 }' | tr -d ')'`
+    VER=`awk <configure.ac '/^AC_INIT/ { print $2 }' | tr -d '[])'`
     TGZ=pwsafe-$VER.tar.gz
     DIR=pwsafe-$VER
-    rm -rf ../$DIR
-    ( cd ..; cvs -d `cat pwsafe/CVS/Root` export -d $DIR -D tomorrow pwsafe; )
-    if ( cd ../$DIR; ./nsd prep; ); then
-      tar czvf ../$TGZ -C ../ $DIR
+    rm -rf $DIR
+    ( git clone . $DIR )
+    if ( cd $DIR; ./nsd prep; ); then
+      tar czvf $TGZ --exclude-vcs $DIR
       # and make the archival copy
-      ( cd ../$DIR; ./configure --program-suffix=$VER; make; strip pwsafe; )
+      ( cd $DIR; ./configure --program-suffix=$VER; make; strip pwsafe; )
       exit $?
     else
       exit 1
