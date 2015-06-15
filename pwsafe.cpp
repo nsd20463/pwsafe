@@ -1089,26 +1089,28 @@ static secstring getin(const char * prompt, const secstring& default_, bool echo
     }
   }
 
-  // read line of input
-  std::cout << prompt;
-  std::cout.flush();
+  // prompt and read the next line of input
+  std::cout << prompt << std::flush;
   std::string x;
-  std::getline(std::cin, x);
-  // restore echo
-  if (echooff)
+  std::getline(std::cin, x); // NOTE: consumes the LF but strips it from the result
+
+  // restore echo if we turned it off
+  if (echooff) {
     tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-  // echo a linefeed since the user's <Enter> was not echoed
-  printf("\n");
+
+    // and echo a linefeed since the user's <Enter> was not echoed
+    std::cout << std::endl;
+  }
+
   // do we have a line?
-  if (!std::cin.eof()) {
+  if (!std::cin.fail() && !std::cin.eof()) {
     secstring xx(x.c_str(), x.size());
-    x.clear();
+    x.clear(); // x is a local; I'm not sure this does much. what we really want here is a memset(0) of the buffer
     return xx.empty() ? default_ : xx;
   } else {
     // EOF/^d; abort
     throw FailEx();
   }
-
 }
 
 // get a password from the user
@@ -1133,34 +1135,34 @@ static char get1char(const char*const prompt, const int def_val) {
   }
 
   while (true) {
-    printf("%s",prompt);
-    fflush(stdout);
-    char x;
-    ssize_t rc = read(STDIN_FILENO,&x,1);
+    std::cout << prompt << std::flush;
+    char x = 0;
+    std::cin.get(x);
 
-    if (rc == 1) {
-      switch (x) {
-      case '\r':
-        printf("\n");
-        // fall through to '\n'
-      case '\n':
-        if (def_val >= 0) {
-          tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-          return def_val;
-        }
-        // else there is no default and the user must press a proper char
-        break;
-      default:
-        printf("\n");
-        tcsetattr(STDIN_FILENO, TCSANOW, &tio);
-        return x;
-      }
-      // if we get this far the user didn't answer, and we loop and reprompt them
-    }
-    else {
+    // NOTE cin.eof() doesn't return true here for ^D b/c cin.get() is raw input. ^D must be checked for and handled explicitly
+    if (std::cin.fail() || (x == tio.c_cc[VEOF])) {
+      // EOF; restore and fail
       tcsetattr(STDIN_FILENO, TCSANOW, &tio);
       throw FailEx();
     }
+
+    switch (x) {
+    case '\r':
+      std::cout << std::endl;
+      // fall through to '\n'
+    case '\n':
+      if (def_val >= 0) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &tio);
+        return def_val;
+      }
+      // else there is no default and the user must press a proper char
+      break;
+    default:
+      std::cout << std::endl;
+      tcsetattr(STDIN_FILENO, TCSANOW, &tio);
+      return x;
+    }
+    // if we get this far the user didn't answer, and we loop and reprompt them
   }
 }
 
