@@ -425,6 +425,7 @@ static const char* pwsafe_strerror(int err); // decodes errno's as well as our n
 static char get1char(const char* prompt, int def_val=-1);
 static bool getyn(const char* prompt, int def_val=-1);
 
+// (unused at the moment) static inline char get1char(const std::string& prompt, int def_val=-1) { return get1char(prompt.c_str(), def_val); }
 static inline char get1char(const secstring& prompt, int def_val=-1) { return get1char(prompt.c_str(), def_val); }
 static inline bool getyn(const std::string& prompt, int def_val=-1) { return getyn(prompt.c_str(), def_val); }
 static inline bool getyn(const secstring& prompt, int def_val=-1) { return getyn(prompt.c_str(), def_val); }
