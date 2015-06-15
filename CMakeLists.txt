@@ -88,7 +88,10 @@ ENDIF()
 #
 # Generate config.h
 #
-CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/cmake-config.h.in ${CMAKE_BINARY_DIR}/config.h)
+CONFIGURE_FILE(
+	${CMAKE_SOURCE_DIR}/cmake-config.h.in
+	${CMAKE_BINARY_DIR}/config.h
+)
 
 #
 # CFLAGS
@@ -147,7 +150,7 @@ FOREACH(datfile test.dat testv2.dat)
 		) 
 	LIST(APPEND DATFILES "${CMAKE_BINARY_DIR}/${datfile}") 
 ENDFOREACH()
-ADD_CUSTOM_TARGET(_ ALL DEPENDS ${DATFILES}) 
+ADD_CUSTOM_TARGET(datfiles ALL DEPENDS ${DATFILES}) 
 
 ENABLE_TESTING()
 FOREACH (test read create edit merge)
