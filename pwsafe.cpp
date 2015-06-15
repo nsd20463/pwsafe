@@ -1345,7 +1345,6 @@ static secstring enter_password(const char* prompt1, const char* prompt2) {
     secstring pw2 = getpw(prompt2);
     if (pw1 == pw2) {
       return pw1;
-      break;
     }
     printf("Passwords do not match\n");
   }
