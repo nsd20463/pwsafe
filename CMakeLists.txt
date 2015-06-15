@@ -100,6 +100,15 @@ ADD_DEFINITIONS(
 )
 
 #
+# OpenSSL APIs are deprecated on OSX
+#
+IF(APPLE)
+	ADD_DEFINITIONS(
+		-Wno-deprecated-declarations
+	)
+ENDIF()
+
+#
 # Set include directories
 #
 INCLUDE_DIRECTORIES(
