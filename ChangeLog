@@ -1,3 +1,22 @@
+2015-06-14  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: merged pull request from github
+	  user gahr which removed the need for
+	  libreadline. That should solve a lot of
+	  the remaining compatability issues with
+	  different OSes, since libreadline was a
+	  source of most of them.
+
+2015-06-13  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: moved from sourceforge to github
+	  https://github.com/nsd20463/pwsafe
+	* pwsafe: merged in some of my local changes
+	  from the past years, as well as some of
+	  the patches sitting on sourceforge. Fixed
+	  most of the bugs that had been reported on
+	  sourceforge.
+
 2006-05-15  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: fix SEGV due to unterminated string
