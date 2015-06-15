@@ -1504,7 +1504,7 @@ static void emit(const secstring& name, const char*const what, const secstring& 
               // walk up the tree looking for a client window
               Window w = xev.xselectionrequest.requestor;
               while (true) {
-                XTextProperty tp = { value: NULL };
+                XTextProperty tp = { .value = NULL };
                 int rc = XGetTextProperty(xdisplay, w, &tp, XA_WM_COMMAND);
                 if (tp.value) XFree(tp.value), tp.value = NULL;
                 if (!rc) {
@@ -1528,13 +1528,13 @@ static void emit(const secstring& name, const char*const what, const secstring& 
               }
 
               const char* requestor = "<unknown>";
-              XTextProperty nm = { value: NULL };
+              XTextProperty nm = { .value = NULL };
               if ((XGetWMName(xdisplay, w, &nm) && nm.encoding == XA_STRING && nm.format == 8 && nm.value) ||
                   (((nm.value?(XFree(nm.value),nm.value=NULL):0), XGetTextProperty(xdisplay, w, &nm, XA_WM_COMMAND)) && nm.encoding == XA_STRING && nm.format == 8 && nm.value)) // try getting WM_COMMAND if we can't get WM_NAME
                 requestor = reinterpret_cast<const char*>(nm.value);
 
               const char* host = "<unknown>";
-              XTextProperty cm = { value: NULL };
+              XTextProperty cm = { .value = NULL };
               if (XGetWMClientMachine(xdisplay, w, &cm) && cm.encoding == XA_STRING && cm.format == 8)
                 host = reinterpret_cast<const char*>(cm.value);
 
