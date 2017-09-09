@@ -80,7 +80,7 @@ AC_CHECK_HEADERS(stdint.h errno.h termios.h getopt.h)
 AC_CHECK_HEADERS(openssl/sha.h openssl/blowfish.h openssl/rand.h, [], [AC_MSG_ERROR(openssl headers (libssl-dev) are required)])
 AC_CHECK_HEADERS(netinet/in.h, [], [AC_MSG_ERROR(netinet/in.h is required)])
 if test "$have_x" = yes; then
-AC_CHECK_HEADERS(X11/Xlib.h X11/Xatom.h X11/Xmu/Atoms.h)
+AC_CHECK_HEADERS(X11/Xlib.h X11/Xatom.h X11/Xmu/Atoms.h, [], [AC_MSG_ERROR(X11 and Xmu headers (libx11-dev, libxmu-headers) are required when --with-x is configured)])
 fi
 
 AC_HEADER_MAJOR
@@ -126,5 +126,4 @@ fi
 AC_SUBST(CXXFLAGS)
 
 AC_OUTPUT(Makefile pwsafe.1 pwsafe.lsm pwsafe.spec)
-
 
