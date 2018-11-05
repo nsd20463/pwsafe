@@ -90,6 +90,9 @@ Show password of listed accounts(s).
 .TP 
 .B  \-E, \-\-echo
 Force echo'ing of entry to stdout. This is selected by default if $DISPLAY is not set.
+.TP
+.B \-t, \-\-twice
+Paste username and password twice to work around Chrome browser weirdness.
 .TP 
 .B  \-o, \-\-output=FILE
 Redirect username and password output to FILE. Implies \-\-echo.
