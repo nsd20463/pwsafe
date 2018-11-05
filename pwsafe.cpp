@@ -366,6 +366,7 @@ const char* arg_output = NULL;
 FILE* outfile = NULL; // will be arg_output() or stdout
 bool arg_username = false;
 bool arg_password = false;
+bool arg_twice = false;
 bool arg_details = false;
 int arg_verbose = 0;
 int arg_debug = 0;
@@ -398,6 +399,7 @@ static long_option const long_options[] =
   {"long", no_argument, 0, 'l'},
   {"username", no_argument, 0, 'u'},
   {"password", no_argument, 0, 'p'},
+  {"twice", no_argument, 0, 't'},
   // options controlling where output goes
   {"echo", no_argument, 0, 'E'},
   {"output", required_argument, 0, 'o'},
@@ -575,7 +577,7 @@ public:
   void mergedb(DB&);
   void passwd();
   void list(const char* regex);
-  void emit(const char* regex, bool username, bool password);
+  void emit(const char* regex, bool username, bool password, bool twice);
   void add(const char* name);
   void edit(const char* regex);
   void del(const char* name);
@@ -794,7 +796,7 @@ int main(int argc, char **argv) {
               db.list(arg_name);
               break;
             case OP_EMIT:
-              db.emit(arg_name, arg_username, arg_password);
+              db.emit(arg_name, arg_username, arg_password, arg_twice);
               break;
             case OP_ADD:
               db.add(arg_name);
@@ -879,6 +881,7 @@ static int parse(int argc, char **argv) {
           "o:"  // output
           "u"   // username
           "p"   // password
+          "t"   // twice
 #ifndef X_DISPLAY_MISSING
           "x"   // xclip
           "d:"  // display
@@ -980,6 +983,9 @@ static int parse(int argc, char **argv) {
       case 'p':
         arg_password = true;
         break;
+      case 't':
+        arg_twice = true;
+        break;
 #ifndef X_DISPLAY_MISSING
       case 'd':
         arg_display = optarg;
@@ -1037,6 +1043,7 @@ static void usage(bool fail) {
         "  -l                         long listing (show username & notes)\n"
         "  -u, --username             emit username of listed account\n"
         "  -p, --password             emit password of listed account\n"
+        "  -t, --twice                emit twice\n"
         "  -E, --echo                 force echoing of entry to stdout\n"
         "  -o, --output=FILE          redirect output to file (implies -E)\n"
         "  --dbversion=[1|2]          specify database file version (default is 2)\n"
@@ -2317,7 +2324,7 @@ void DB::list(const char* regex /* might be NULL */) {
   }
 }
 
-void DB::emit(const char* regex, bool username, bool password) {
+void DB::emit(const char* regex, bool username, bool password, bool twice) {
   if (open()) {
     const Entry& e = find1(regex);
 
@@ -2327,9 +2334,11 @@ void DB::emit(const char* regex, bool username, bool password) {
       emit_notes(e.notes);
 
     if (username)
-      ::emit(e.groupname(), "username", e.default_login?e.the_default_login:e.login);
+        for (int i = 0; i < (twice ? 2 : 1); i++)
+            ::emit(e.groupname(), "username", e.default_login?e.the_default_login:e.login);
     if (password)
-      ::emit(e.groupname(), "password", e.password);
+        for (int i = 0; i < (twice ? 2 : 1); i++)
+            ::emit(e.groupname(), "password", e.password);
  
     if (arg_echo && arg_details)
       // if we didn't emit the notes above, do it now
