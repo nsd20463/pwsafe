@@ -1,3 +1,15 @@
+2018-12-14  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: add '<unknown>' to the default ignore
+	  list. It seems KDE's clipboard reader is
+	  using that these days.
+
+2018-10-05  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: merge in -t/--twice pull request
+	  to work around Chrome read the clipboard
+	  twice each time.
+
 2015-06-14  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: merged pull request from github
