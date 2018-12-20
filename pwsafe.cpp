@@ -970,7 +970,8 @@ static int parse(int argc, char **argv) {
         break;
       case 'o':
         arg_output = optarg;
-        // fall through into 'E' since -o implies -e
+		// -o implies -e
+        // fall through
       case 'E':
         arg_echo = true; 
 #ifndef X_DISPLAY_MISSING
@@ -993,7 +994,8 @@ static int parse(int argc, char **argv) {
         break;
       case 's':
         arg_selection = optarg; // we can't parse it until we open X
-        // -s implies -x, so no 'break'
+        // -s implies -x
+		// fall through
       case 'x':
         arg_xclip = true; arg_echo = false;
         break;
@@ -1156,7 +1158,7 @@ static char get1char(const char*const prompt, const int def_val) {
     switch (x) {
     case '\r':
       std::cout << std::endl;
-      // fall through to '\n'
+      // fall through
     case '\n':
       if (def_val >= 0) {
         tcsetattr(STDIN_FILENO, TCSANOW, &tio);
