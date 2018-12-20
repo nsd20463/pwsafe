@@ -1,3 +1,8 @@
+2018-12-20  Nicolas S. Dade  <ndade@nsd.dyndns.org>
+
+	* pwsafe: clean up bits which cause compiler
+	  warnings in newer g++ versions.
+
 2018-12-14  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: add '<unknown>' to the default ignore
