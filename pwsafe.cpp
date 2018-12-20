@@ -606,8 +606,9 @@ int main(int argc, char **argv) {
       
       // if we are running suid, drop privileges now; we use seteuid() instead of setuid() so the saved uid remains root and we can become root again in order to mlock()
       if (saved_uid != getuid() || saved_gid != getgid()) {
-        setegid(getgid());
-        seteuid(getuid());
+        int dont_care = setegid(getgid());
+        dont_care = seteuid(getuid());
+		(void)dont_care; // shut gcc up about these
       }
 
       // be nice and paranoid
@@ -2921,13 +2922,15 @@ secalloc::Pool::Pool(size_t n) : next(0), top(0), bottom(0), level(0) {
   // Redhat FC3 returns ENOMEM if not root, not EPERM, so dont bother checking for EPERM error from mlock(); treat any error to mean 'try mlock() against as SUID user'
   if (rc && (saved_uid != geteuid() || saved_gid != getegid())) {
     // try again as root (or whoever saved_uid really is)
+	int dont_care; // gcc+glibc is a PITA about ignoring certain failures. I don't care if these fail. I try the mlock and if it fails, it fails.
     if (saved_uid != geteuid()) 
-      seteuid(saved_uid);
+      dont_care = seteuid(saved_uid);
     if (saved_gid != getegid())
-      setegid(saved_gid);
+      dont_care = setegid(saved_gid);
     rc = mlock(level,top-level);
-    setegid(getgid());
-    seteuid(getuid());
+    dont_care = setegid(getgid());
+    dont_care = seteuid(getuid());
+	(void)dont_care;
   }
   if (rc) {
     static bool reported = false;
@@ -2958,7 +2961,8 @@ void secalloc::init() {
   
     if (pagesize == (size_t)-1 || pagesize == 0) {
       const char errstr[] = "Error: can't compute kernel MMU page size\n";
-      write(STDERR_FILENO, errstr, sizeof(errstr)); // at the point when init() is called, stderr is not necessarily setup
+      int dont_care = write(STDERR_FILENO, errstr, sizeof(errstr)); // at the point when init() is called, stderr is not necessarily setup
+	  (void)dont_care; // I don't care if this write() failed. This is severe failure path code anyway.
       throw FailEx();
     }
   }
