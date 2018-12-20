@@ -111,9 +111,9 @@ AC_CHECK_FUNC(tcsetattr, [], [AC_MSG_ERROR(tcsetattr() is needed)])
 AC_CHECK_FUNC(setrlimit, [AC_DEFINE(HAVE_SETRLIMIT, 1, [Define to 1 if setrlimit is supported])], [])
 
 
-dnl enable -Wall by default. Pass in CXXFLAGS directly to make to override this.
-CFLAGS="$CFLAGS -Wall"
-CXXFLAGS="$CXXFLAGS -Wall"
+dnl enable -Wall and -Wextra by default. Pass in CXXFLAGS directly to make to override this.
+CFLAGS="$CFLAGS -Wall -Wextra"
+CXXFLAGS="$CXXFLAGS -Wall -Wextra"
 
 
 dnl if we enabled debug, remove the -O2 and add -g; actually I override the -O2 by following it with -O0
