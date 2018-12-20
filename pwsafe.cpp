@@ -608,7 +608,7 @@ int main(int argc, char **argv) {
       if (saved_uid != getuid() || saved_gid != getgid()) {
         int dont_care = setegid(getgid());
         dont_care = seteuid(getuid());
-		(void)dont_care; // shut gcc up about these
+        (void)dont_care; // shut gcc up about these
       }
 
       // be nice and paranoid
@@ -971,8 +971,8 @@ static int parse(int argc, char **argv) {
         break;
       case 'o':
         arg_output = optarg;
-		// -o implies -e
-        // fall through
+        // -o implies -e
+        // falls through
       case 'E':
         arg_echo = true; 
 #ifndef X_DISPLAY_MISSING
@@ -996,7 +996,7 @@ static int parse(int argc, char **argv) {
       case 's':
         arg_selection = optarg; // we can't parse it until we open X
         // -s implies -x
-		// fall through
+        // falls through
       case 'x':
         arg_xclip = true; arg_echo = false;
         break;
@@ -1159,7 +1159,7 @@ static char get1char(const char*const prompt, const int def_val) {
     switch (x) {
     case '\r':
       std::cout << std::endl;
-      // fall through
+      // falls through
     case '\n':
       if (def_val >= 0) {
         tcsetattr(STDIN_FILENO, TCSANOW, &tio);
@@ -2922,7 +2922,7 @@ secalloc::Pool::Pool(size_t n) : next(0), top(0), bottom(0), level(0) {
   // Redhat FC3 returns ENOMEM if not root, not EPERM, so dont bother checking for EPERM error from mlock(); treat any error to mean 'try mlock() against as SUID user'
   if (rc && (saved_uid != geteuid() || saved_gid != getegid())) {
     // try again as root (or whoever saved_uid really is)
-	int dont_care; // gcc+glibc is a PITA about ignoring certain failures. I don't care if these fail. I try the mlock and if it fails, it fails.
+    int dont_care; // gcc+glibc is a PITA about ignoring certain failures. I don't care if these fail. I try the mlock and if it fails, it fails.
     if (saved_uid != geteuid()) 
       dont_care = seteuid(saved_uid);
     if (saved_gid != getegid())
@@ -2930,7 +2930,7 @@ secalloc::Pool::Pool(size_t n) : next(0), top(0), bottom(0), level(0) {
     rc = mlock(level,top-level);
     dont_care = setegid(getgid());
     dont_care = seteuid(getuid());
-	(void)dont_care;
+    (void)dont_care;
   }
   if (rc) {
     static bool reported = false;
@@ -2962,7 +2962,7 @@ void secalloc::init() {
     if (pagesize == (size_t)-1 || pagesize == 0) {
       const char errstr[] = "Error: can't compute kernel MMU page size\n";
       int dont_care = write(STDERR_FILENO, errstr, sizeof(errstr)); // at the point when init() is called, stderr is not necessarily setup
-	  (void)dont_care; // I don't care if this write() failed. This is severe failure path code anyway.
+      (void)dont_care; // I don't care if this write() failed. This is severe failure path code anyway.
       throw FailEx();
     }
   }
