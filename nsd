@@ -26,7 +26,7 @@ case $1 in
     if [ -z "$SF_USER" ]; then
       SF_USER=`echo $USER|tr -d -`
     fi
-    tar czvf /tmp/$TGZ . --exclude '*.o' --exclude pwsafe 
+    tar czvf /tmp/$TGZ --exclude '*.o' --exclude pwsafe .
     scp /tmp/$TGZ $SF_USER@cf-shell.sourceforge.net:$TGZ
     rm /tmp/$TGZ
 
