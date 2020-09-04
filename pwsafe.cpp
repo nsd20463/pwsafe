@@ -737,6 +737,7 @@ int main(int argc, char **argv) {
 
       // seed the random number generator
       char rng_filename[1024];
+      memset(rng_filename, 0, sizeof(rng_filename));
       if (RAND_file_name(rng_filename,sizeof(rng_filename))) {
         int rc = RAND_load_file(rng_filename,-1);
         if (rc) {
@@ -1143,7 +1144,7 @@ static secstring getpw(const std::string& prompt) {
     // FIXME: returns cannot allocate memory when ssh-askpass is cancelled or ESC pressed
     // and that is confusing
     if (fgets(buffer, 2048, pipe) == NULL) {
-      fprintf(stderr, "ERROR: cannot read data from askpass binary %s: %s\n", arg_askpass, strerror(errno));
+      fprintf(stderr, "ERROR: cannot read data from askpass binary (pressed cancel?) %s: %s\n", arg_askpass, strerror(errno));
       throw FailEx();
     }
     // Drop last char (LF) from buffer if it's not empty
