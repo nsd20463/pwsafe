@@ -83,8 +83,6 @@
 #include <memory>
 #include <fstream>
 
-#include "system.h"
-
 #include <termios.h>
 
 #ifndef HAS_GETOPT_LONG
