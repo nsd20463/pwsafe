@@ -38,13 +38,17 @@ HOW TO BUILD FROM GITHUB
    autoheader              # generate config.h.in from configure.ac
    automake --add-missing  # generated Makefile.in from Makefile.am
    autoconf                # generate configure from configure.ac
-   ./configure             # etc...; from here on you're on your own
+   ./configure             # with whatever flags you'd normally use
+   make                    # GNU make please
+
+The script build_linux.sh automates everything from the `aclocal` step
+if you're on a linux system.
 
 You'll need autoconf 2.5 or better, and automake. On debian this should
 get you most of the way there:
 
    apt-get install automake autoconf gcc 
-
+   ./build_linux.sh
 
 SUPPORTED ENVIRONMENTS
 
