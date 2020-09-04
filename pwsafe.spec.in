@@ -11,7 +11,7 @@
 Name: %{name}
 Version: %{version}
 Release: %{release}
-Copyright: GPL
+License: GPLv2+
 Group: Application/Misc
 
 # optional items
@@ -27,6 +27,12 @@ Source: %{name}-%{version}.tar.gz
 #Patch:
 #Patch1:
 
+BuildRequires:  gcc-c++
+BuildRequires:  gcc
+BuildRequires:  readline-devel, ncurses-devel, openssl-devel
+BuildRequires:  libXt-devel, libXext-devel, libXau-devel, libXdmcp-devel
+BuildRequires:  libSM-devel, libICE-devel, libXmu-devel
+
 # RPM info
 #Provides:
 #Requires:
@@ -36,11 +42,11 @@ Source: %{name}-%{version}.tar.gz
 #Prefix: /usr
 BuildRoot: /var/tmp/%{name}-%{version}
 
-Summary: commandline tool compatible with Counterpane's Passwordsafe
+Summary: a commandline program to manage encrypted password databases
 
 %description
-commandline tool compatible with Counterpane's Passwordsafe
-@configure_input@
+pwsafe is a unix commandline program that manages encrypted password databases.
+pwsafe is compatible with Counterpane's Passwordsafe program versions 2.x and earlier.
 
 %prep
 %setup -q
