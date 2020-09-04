@@ -6,7 +6,7 @@ AC_PREREQ(2.5)
 
 dnl Every other copy of the package version number gets its value from the following line
 dnl NOTE WELL: the ' ' after the comma is required by "./nsd release".
-AC_INIT([pwsafe.cpp], [0.2.1beta])
+AC_INIT([pwsafe.cpp], [0.2.2])
 AM_INIT_AUTOMAKE
 
 dnl create a config.h file (Automake will add -DHAVE_CONFIG_H)
