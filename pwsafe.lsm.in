@@ -5,9 +5,9 @@ Entered-date:	@ISODATE@
 Description:	commandline tool compatible with Counterpane's Passwordsafe
 		@configure_input@
 Keywords:	passwordsafe password Counterpane
-Author: 	ndade@nsd.dyndns.org (Nicolas S. Dade)
-Maintained-by:	ndade@nsd.dyndns.org (Nicolas S. Dade)
-Primary-site:	nsd.dyndns.org/pwsafe
+Author: 	nic.dade@gmail.com (Nicolas S. Dade)
+Maintained-by:	nic.dade@gmail.com (Nicolas S. Dade)
+Primary-site:	github.com/nsd20463/pwsafe
 		31k pwsafe-@VERSION@.tar.gz
 		500  pwsafe.lsm
 Alternate-site: 

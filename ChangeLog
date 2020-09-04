@@ -1,3 +1,28 @@
+2020-09-04  Nicolas S. Dade  <nic.dade@gmail.com>
+
+	* pwsafe: update to this year's config.guess
+	  and config.sub. Really I might regenerate
+	  all the autoconf/automake files, but
+	  this is enough to get us off the ground.
+	  It's debatable whether I'm doing the right
+	  thing by distributing the generated files
+	  in the first place. I know <opened@github>
+	  disagrees. But I do want the sequence
+	    ./configure && make && make install
+	  to work for most people. Those who know
+	  more can read the INSTALL file and/or
+	  regenerate these themselves using their
+	  local autoconf.
+	* pwsafe: fix uninitialize data bug when
+	  RAND_file_name() fails, which lead to
+	  files with random names getting created
+	  in $HOME
+	* pwsafe: update email and URL addresses,
+	  since dyndns.org is dead and I haven't
+	  setup a substitute website.
+	  github is now the locus of development
+	  and distribution.
+
 2018-12-20  Nicolas S. Dade  <ndade@nsd.dyndns.org>
 
 	* pwsafe: clean up bits which cause compiler

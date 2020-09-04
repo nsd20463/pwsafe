@@ -25,7 +25,7 @@
 .\" .br        insert line break
 .\" .sp <n>    insert n+1 empty lines
 .\" for manpage-specific macros, see man(7)
-.TH "PWSAFE" "1" "@VERSION@" "Nicolas S. Dade <ndade@nsd.dyndns.org>" ""
+.TH "PWSAFE" "1" "@VERSION@" "Nicolas S. Dade <nic.dade@gmail.com>" ""
 .SH "NAME"
 pwsafe \- commandline password database utility compatible with Counterpane's Passwordsafe
 .SH "SYNOPSIS"
@@ -175,15 +175,15 @@ Upgrade a version passwordsafe version 1.7 database to version 2.0 (we do this b
 
 pwsafe \-\-mergedb $HOME/.pwsafe.dat \-\-dbversion 2
 .SH "AUTHOR"
-Nicolas S. Dade <ndade@nsd.dyndns.org>.
+Nicolas S. Dade <nic.dade@gmail.com>.
 .SH "REPORTING BUGS"
-Report bugs to <ndade@nsd.dyndns.org>.
+Report bugs at https://github.com/nsd20463/pwsafe or to <nic.dade@gmail.com>.
 .SH "COPYRIGHT"
-Copyright (c) 2004\-2015 Nicolas S. Dade.
+Copyright (c) 2004\-2020 Nicolas S. Dade.
 
 This is free software; see the source for copying conditions.  There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A  PARTICULAR PURPOSE.
 .SH "SEE ALSO"
-http://nsd.dyndns.org/pwsafe/
+https://github.com/nsd20463/pwsafe
 .br 
 http://passwordsafe.sourceforge.net/,
 http://www.counterpane.com/

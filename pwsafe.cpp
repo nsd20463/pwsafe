@@ -1,7 +1,7 @@
 /* 
    pwsafe - commandline tool compatible with Counterpane's Passwordsafe
 
-   Copyright (C) 2004-2015 Nicolas S. Dade
+   Copyright (C) 2004-2020 Nicolas S. Dade
 
    $Id$
 
