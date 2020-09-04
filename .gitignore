@@ -16,3 +16,4 @@ pwsafe.o
 pwsafe.spec
 stamp-h1
 test-driver
+test-suite.log
