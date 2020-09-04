@@ -735,7 +735,7 @@ int main(int argc, char **argv) {
  
 
       // seed the random number generator
-      char rng_filename[1024];
+      char rng_filename[PATH_MAX+1];
       if (RAND_file_name(rng_filename,sizeof(rng_filename))) {
         int rc = RAND_load_file(rng_filename,-1);
         if (rc) {
