@@ -16,7 +16,7 @@ AM_CONFIG_HEADER(config.h)
 dnl --with-openssl-dir=dir
 AC_ARG_WITH(openssl-dir, AC_HELP_STRING([--with-openssl-dir=DIR], [indicate where openssl is installed (default=/usr)]),,)
 if test "$with_openssl_dir" = no; then
-  AC_MSG_ERROR(openssl is required is not supported)
+  AC_MSG_ERROR(openssl is required)
 fi
 if test -n "$with_openssl_dir" && test "$with_openssl_dir" != yes; then
   CPPFLAGS="$CPPFLAGS -I${with_openssl_dir}/include"
@@ -53,25 +53,29 @@ AC_TYPE_SIZE_T
 AC_CHECK_TYPES(long long)
 AC_FUNC_MEMCMP
 
-dnl Check for X
-AC_PATH_XTRA
+dnl if the user wants X
+if test "$with-x" != no; then
+  dnl Check for X
+  AC_PATH_XTRA
 
-dnl if this is OS X then we're going to need -flat_namespace -supress undefined in order to build against the X libraries
-dnl and since it doesn't hurt otherwise, always use the option (thanks to Robert)
-case $ac_sys_system/$ac_sys_release in
-  Darwin/*)LDFLAGS="$LDFLAGS -flat_namespace -undefined suppress";;
-esac
+  dnl if this is OS X then we're going to need -flat_namespace -supress undefined in order to build against the X libraries
+  dnl and since it doesn't hurt otherwise, always use the option (thanks to Robert)
+  case $ac_sys_system/$ac_sys_release in
+    Darwin/*)LDFLAGS="$LDFLAGS -flat_namespace -undefined suppress";;
+  esac
+
+  dnl check for the X libraries
+  if test "$have_x" = yes; then
+    CPPFLAGS="$CPPFLAGS $X_CFLAGS $X_LIBS"
+    AC_CHECK_LIB(X11, XOpenDisplay,, $X_EXTRA_LIBS)
+    AC_CHECK_LIB(Xmu, XmuInternAtom,, $X_EXTRA_LIBS)
+  fi
+fi
+
 
 dnl Checks for libraries.
 dnl AM_WITH_REGEX
 AC_CHECK_LIB(crypto, SHA1_Init, [], [AC_MSG_ERROR(openssl (libssl) is required)])
-
-dnl check for the X libraries
-if test "$have_x" = yes; then
-  CPPFLAGS="$CPPFLAGS $X_CFLAGS $X_LIBS"
-  AC_CHECK_LIB(X11, XOpenDisplay,, $X_EXTRA_LIBS)
-  AC_CHECK_LIB(Xmu, XmuInternAtom,, $X_EXTRA_LIBS)
-fi
 
 dnl Checks for header files.
 AC_HEADER_STDC
