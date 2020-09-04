@@ -744,6 +744,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "WARNING: %s unable to seed rng from %s\n", program_name, rng_filename);
         }
       } else {
+	    rng_filename[0] = '\0';
         if (arg_verbose >= -1)
           fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
       }
