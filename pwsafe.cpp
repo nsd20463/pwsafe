@@ -1503,10 +1503,10 @@ static void emit(const secstring& name, const char*const what, const secstring& 
             if (xev.xselectionrequest.target == XA_TARGETS(xdisplay)) {
               // tell them what we can supply
               const Atom targets[] = { XA_TARGETS(xdisplay), XA_TIMESTAMP(xdisplay), XA_TEXT(xdisplay), XA_STRING };
-              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TARGETS(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&targets), sizeof(targets)/sizeof(targets[0]));
+              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_ATOM, 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&targets), sizeof(targets)/sizeof(targets[0]));
             }
             else if (xev.xselectionrequest.target == XA_TIMESTAMP(xdisplay)) {
-              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_TIMESTAMP(xdisplay), 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&timestamp), 1);
+              XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_INTEGER, 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&timestamp), 1);
             }
             else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
                 xev.xselectionrequest.target == XA_STRING) {
