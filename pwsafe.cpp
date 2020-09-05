@@ -361,6 +361,7 @@ enum OP {
 };
 OP arg_op = OP_NOP;
 //const char* arg_config = NULL;
+const char* arg_askpass = NULL;
 bool arg_casesensative = false;
 bool arg_echo = false;
 const char* arg_output = NULL;
@@ -394,6 +395,7 @@ static long_option const long_options[] =
   {"delete", no_argument, 0, 'D'},
   // options
 //  {"config", required_argument, 0, 'F'},
+  {"askpass", required_argument, 0, 'A'},
   {"file", required_argument, 0, 'f'},
   {"case", no_argument, 0 ,'I'},
   // options controlling what is outputted
@@ -878,6 +880,7 @@ static int parse(int argc, char **argv) {
           "a"   // add
           "e"   // edit
 //          "F:"  // config
+          "A:"  // askpass program
           "f:"  // file
           "I"   // case sensative
           "E"   // echo
@@ -951,6 +954,9 @@ static int parse(int argc, char **argv) {
 //      case 'F':
 //        arg_config = optarg;
 //        break;
+      case 'A':
+        arg_askpass = optarg;
+        break;
       case 'f':
         arg_dbname = optarg;
         break;
@@ -1045,10 +1051,11 @@ static void usage(bool fail) {
 //        "  -F, --config=CONFIG_FILE   specify a configuration (defaults is ~/.pwsaferc + /etc/pwsaferc)\n"
         "  -f, --file=DATABASE_FILE   specify the database file (default is ~/.pwsafe.dat)\n"
         "  -I, --case                 perform case sensative matching\n"
+        "  -A=<program>               use external program to ask for password (e.g. ssh-askpass)\n"
         "  -l                         long listing (show username & notes)\n"
         "  -u, --username             emit username of listed account\n"
         "  -p, --password             emit password of listed account\n"
-        "  -t, --twice                emit twice\n"
+        "  -t, --twice                emit twice for hungry chrome\n"
         "  -E, --echo                 force echoing of entry to stdout\n"
         "  -o, --output=FILE          redirect output to file (implies -E)\n"
         "  --dbversion=[1|2]          specify database file version (default is 2)\n"
@@ -1127,6 +1134,39 @@ static secstring getin(const char * prompt, const secstring& default_, bool echo
 
 // get a password from the user
 static secstring getpw(const std::string& prompt) {
+  // use askpass binary if requested
+  if (arg_askpass) {
+    FILE* pipe = popen(arg_askpass, "r");
+    if (!pipe) {
+      fprintf(stderr, "ERROR: cannot run askpass binary %s: %s\n", arg_askpass, strerror(errno));
+      throw FailEx();
+    }
+    char buffer[2048];
+	errno = 0;
+    if (fgets(buffer, sizeof(buffer), pipe) == NULL) {
+	  // we must distingush between an empty password and a failure. assume an empty password unless errno was set
+	  if (errno) {
+		fprintf(stderr, "ERROR: cannot read password from askpass binary %s: %s\n", arg_askpass, strerror(errno));
+		throw FailEx();
+	  }
+	  buffer[0] = '\0';
+    }
+    // Drop last char (LF) from buffer if it's not empty
+    size_t pwlen = strlen(buffer);
+    if (pwlen>0 && buffer[pwlen-1] == '\n') {
+      buffer[pwlen-1] = '\0';
+    }
+    secstring xx(buffer);
+    memset(buffer, 0, sizeof(buffer));
+    int returnCode = pclose(pipe);
+    if (returnCode) {
+      fprintf(stderr, "ERROR: askpass binary returned %d\n", returnCode);
+      throw FailEx();
+    }
+    return xx;
+  }
+
+  // no askpass? Use terminal
   return getin(prompt.c_str(), "", true);
 }
 
