@@ -1142,11 +1142,14 @@ static secstring getpw(const std::string& prompt) {
       throw FailEx();
     }
     char buffer[2048];
-    // FIXME: returns cannot allocate memory when ssh-askpass is cancelled or ESC pressed
-    // and that is confusing
+	errno = 0;
     if (fgets(buffer, sizeof(buffer), pipe) == NULL) {
-      fprintf(stderr, "ERROR: cannot read data from askpass binary (pressed cancel?) %s: %s\n", arg_askpass, strerror(errno));
-      throw FailEx();
+	  // we must distingush between an empty password and a failure. assume an empty password unless errno was set
+	  if (errno) {
+		fprintf(stderr, "ERROR: cannot read password from askpass binary %s: %s\n", arg_askpass, strerror(errno));
+		throw FailEx();
+	  }
+	  buffer[0] = '\0';
     }
     // Drop last char (LF) from buffer if it's not empty
     size_t pwlen = strlen(buffer);
