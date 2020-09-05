@@ -1502,10 +1502,11 @@ static void emit(const secstring& name, const char*const what, const secstring& 
             // see what they want exactly
             if (xev.xselectionrequest.target == XA_TARGETS(xdisplay)) {
               // tell them what we can supply
-              const Atom targets[] = { XA_TARGETS(xdisplay), XA_TIMESTAMP(xdisplay), XA_TEXT(xdisplay), XA_STRING };
+              const Atom targets[] = { XA_TARGETS(xdisplay), XA_TIMESTAMP(xdisplay), XA_TEXT(xdisplay), XA_STRING }; // TODO maybe XA_UTF8_STRING(xdisplay) ? XA_STRING is Latin-1 which is not really what we send when the locale is UTF-8, as it often is these days
               XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_ATOM, 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&targets), sizeof(targets)/sizeof(targets[0]));
             }
             else if (xev.xselectionrequest.target == XA_TIMESTAMP(xdisplay)) {
+              // the ICCCM v2 section 2.6.2 says the type of the TIMESTAMP property should be INTEGER
               XChangeProperty(xdisplay, xev.xselectionrequest.requestor, prop, XA_INTEGER, 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&timestamp), 1);
             }
             else if (xev.xselectionrequest.target == XA_TEXT(xdisplay) ||
