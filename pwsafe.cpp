@@ -1051,7 +1051,7 @@ static void usage(bool fail) {
 //        "  -F, --config=CONFIG_FILE   specify a configuration (defaults is ~/.pwsaferc + /etc/pwsaferc)\n"
         "  -f, --file=DATABASE_FILE   specify the database file (default is ~/.pwsafe.dat)\n"
         "  -I, --case                 perform case sensative matching\n"
-        "  -A=<askpass_binary>        use askpass_binary to ask for password (e.g. ssh-askpass)\n"
+        "  -A=<program>               use external program to ask for password (e.g. ssh-askpass)\n"
         "  -l                         long listing (show username & notes)\n"
         "  -u, --username             emit username of listed account\n"
         "  -p, --password             emit password of listed account\n"
@@ -1141,20 +1141,20 @@ static secstring getpw(const std::string& prompt) {
       fprintf(stderr, "ERROR: cannot run askpass binary %s: %s\n", arg_askpass, strerror(errno));
       throw FailEx();
     }
-    char buffer[2049];
+    char buffer[2048];
     // FIXME: returns cannot allocate memory when ssh-askpass is cancelled or ESC pressed
     // and that is confusing
-    if (fgets(buffer, 2048, pipe) == NULL) {
+    if (fgets(buffer, sizeof(buffer), pipe) == NULL) {
       fprintf(stderr, "ERROR: cannot read data from askpass binary (pressed cancel?) %s: %s\n", arg_askpass, strerror(errno));
       throw FailEx();
     }
     // Drop last char (LF) from buffer if it's not empty
-    int pwlen = strlen(buffer);
-    if (pwlen>0) {
-      buffer[strlen(buffer)-1] = '\0';
+    size_t pwlen = strlen(buffer);
+    if (pwlen>0 && buffer[pwlen-1] == '\n') {
+      buffer[pwlen-1] = '\0';
     }
     secstring xx(buffer);
-    memset((void*)buffer, 0, 2049);
+    memset(buffer, 0, sizeof(buffer));
     int returnCode = pclose(pipe);
     if (returnCode) {
       fprintf(stderr, "ERROR: askpass binary returned %d\n", returnCode);
@@ -1162,6 +1162,7 @@ static secstring getpw(const std::string& prompt) {
     }
     return xx;
   }
+
   // no askpass? Use terminal
   return getin(prompt.c_str(), "", true);
 }

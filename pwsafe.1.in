@@ -109,6 +109,9 @@ Select the X selection effected. Default is Both primary and clipboard. Implies 
 .B  \-G, \-\-ignore=NAME@HOST
 Add NAME to windows or hosts that do not receive the selection. If just NAME is given it matches any host, and if just @HOST is given it matches any name.
 .TP 
+.B  \-A, \-\-askpass=PROGRAM
+Use external PROGRAM to request the database password(s) from the user. /usr/bin/ssh-askpass is one such program.
+.TP 
 .B  \-v, \-\-verbose
 Print more information.
 .TP 
