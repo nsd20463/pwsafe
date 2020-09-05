@@ -22,7 +22,8 @@ jobs:
     - name: autoconf
       run: autoconf
     - name: configure
-      run: ./configure
+      # note: github's build machine lack Xmu.h. just build without it
+      run: ./configure --without-x
     - name: make
       run: make
     - name: make check
