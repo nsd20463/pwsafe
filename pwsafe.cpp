@@ -747,7 +747,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "WARNING: %s unable to seed rng from %s\n", program_name, rng_filename);
         }
       } else {
-	    rng_filename[0] = '\0';
+        rng_filename[0] = '\0';
         if (arg_verbose >= -1)
           fprintf(stderr, "WARNING: %s unable to seed rng. Check $RANDFILE.\n", program_name);
       }
@@ -1142,14 +1142,14 @@ static secstring getpw(const std::string& prompt) {
       throw FailEx();
     }
     char buffer[2048];
-	errno = 0;
+    errno = 0;
     if (fgets(buffer, sizeof(buffer), pipe) == NULL) {
-	  // we must distingush between an empty password and a failure. assume an empty password unless errno was set
-	  if (errno) {
-		fprintf(stderr, "ERROR: cannot read password from askpass binary %s: %s\n", arg_askpass, strerror(errno));
-		throw FailEx();
-	  }
-	  buffer[0] = '\0';
+      // we must distingush between an empty password and a failure. assume an empty password unless errno was set
+      if (errno) {
+        fprintf(stderr, "ERROR: cannot read password from askpass binary %s: %s\n", arg_askpass, strerror(errno));
+        throw FailEx();
+      }
+      buffer[0] = '\0';
     }
     // Drop last char (LF) from buffer if it's not empty
     size_t pwlen = strlen(buffer);
