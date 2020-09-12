@@ -1926,13 +1926,13 @@ void DB::mergedb(DB& db2) {
               case 'd':
                 printf("%s", f.diff(e).c_str());
                 break;
-              case '?':
+              case '?': case 'h':
                 printf("Commands:\n"
                   "  Y      Yes, overwrite entry\n"
                   "  N      No, keep entry as-is\n"
                   "  D      Show difference (changes)\n"
                   "  ?      Help\n"
-                  "  Q      Stop merging and abandon changes\n");
+                  "  Q      Stop merging and abandon all changes\n");
                 break;
               case 'q':
                 throw FailEx();
