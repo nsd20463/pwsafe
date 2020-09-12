@@ -2484,7 +2484,36 @@ void DB::edit(const char* regex) {
       break;
     }
 
-    e.notes = gettxt("notes: [<keep same>] ", e_orig.notes);
+    while (true) {
+      switch (tolower(get1char("edit notes [y/N/s/d/?] ? ", 'n'))) {
+        case 'y':
+          e.notes = gettxt("notes: ", e_orig.notes); // note that default is still to keep notes. you must use 'd' and confirm to delete notes. this is for safety
+          break;
+        case 'n':
+          break;
+        case 's':
+          printf("%s\n", e.notes.c_str());
+          continue;
+        case 'd':
+          if (getyn("confirm deleting notes ? [n] ", false)) {
+            printf("notes deleted\n");
+            e.notes = "";
+            break;
+          } else {
+            continue;
+          }
+        case '?': case 'h':
+          printf("Commands:\n"
+               "  Y      Yes, edit notes\n"
+               "  N      No, keep notes as-is\n"
+               "  D      Delete notes\n"
+               "  S      Show notes\n"
+               "  ?      Help\n");
+          continue;
+      }
+      break;
+    }
+
 
     if (e_orig != e) {
       typedef std::vector<std::string> changes_t;
