@@ -1923,8 +1923,16 @@ void DB::mergedb(DB& db2) {
                 num_skipped++;
                 done = true;
                 break;
-              case 'd': case '?':
+              case 'd':
                 printf("%s", f.diff(e).c_str());
+                break;
+              case '?':
+                printf("Commands:\n"
+                  "  Y      Yes, overwrite entry\n"
+                  "  N      No, keep entry as-is\n"
+                  "  D      Show difference (changes)\n"
+                  "  ?      Help\n"
+                  "  Q      Stop merging and abandon changes\n");
                 break;
               case 'q':
                 throw FailEx();
