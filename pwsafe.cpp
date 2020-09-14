@@ -1402,6 +1402,46 @@ static secstring enter_password(const char* prompt1, const char* prompt2) {
   }
 }
 
+static secstring edit_text(const char* name, secstring value) {
+  size_t n = strlen(name);
+  char prompt1[5+n+15+1];
+  snprintf(prompt1, sizeof(prompt1), "edit %s [y/N/s/d/?/q] ? ", name);
+  char prompt2[n+2+1];
+  snprintf(prompt2, sizeof(prompt2), "%s: ", name);
+  char prompt3[17+n+7+1];
+  snprintf(prompt3, sizeof(prompt3), "confirm deleting %s ? [n] ", name);
+
+  while (true) {
+    switch (tolower(get1char(prompt1, 'n'))) {
+      case 'y':
+        return gettxt(prompt2, value); // note that default to keep the value. you must use 'd' and confirm to delete. this is for safety
+      case 'n':
+        return value;
+      case 's':
+        printf("%s\n", value.c_str());
+        break;
+      case 'd':
+        if (getyn(prompt3, false)) {
+          printf("%s deleted\n", name);
+          return "";
+        }
+        break;
+      case '?': case 'h':
+        printf("Commands:\n"
+             "  Y      Yes, edit %s\n"
+             "  N      No, keep %s as-is\n"
+             "  D      Delete %s\n"
+             "  S      Show %s\n"
+             "  ?      Help\n"
+             "  Q      Stop editing and abandon all changes\n",
+            name, name, name, name);
+        break;
+      case 'q':
+        throw FailEx();
+    }
+  }
+}
+
 // print txt to outfile / copy to X selection
 static void emit(const secstring& name, const char*const what, const secstring& txt) {
   if (arg_echo) {
@@ -2455,18 +2495,18 @@ void DB::edit(const char* regex) {
     while (true) {
       e.name = gettxt("name: ["+e_orig.name+"] ", e_orig.name);
       if (version != VERSION_1_7)
-        e.group = gettxt("group: ["+e_orig.group+"] ", e_orig.group);
+        e.group = edit_text("group", e_orig.group);
       if ((e.name == e_orig.name && e.group == e_orig.group) || 
           entries.find(e.groupname()) == entries.end()) // e.name cannot be empty b/c if the user entered an empty string they got the old name
         break;
-      printf("%s already exists\n", e.groupname().c_str());
+      printf("%s already exists. You must delete it before reusing the name\n", e.groupname().c_str());
     }
 
  
     if (e.default_login)
       e.default_login = getyn("keep default username ("+e_orig.the_default_login+") ? [y]", true);
     if (!e.default_login) {
-      e.login = gettxt("username: ["+e_orig.login+"] ", e_orig.login);
+      e.login = edit_text("username", e_orig.login);
       if (e.login.empty() && !e_orig.default_login) // no point in asking if they just disabled default login
         e.default_login = getyn("use default username ("+e_orig.the_default_login+") ? [n]", false);
     }
@@ -2484,36 +2524,7 @@ void DB::edit(const char* regex) {
       break;
     }
 
-    while (true) {
-      switch (tolower(get1char("edit notes [y/N/s/d/?] ? ", 'n'))) {
-        case 'y':
-          e.notes = gettxt("notes: ", e_orig.notes); // note that default is still to keep notes. you must use 'd' and confirm to delete notes. this is for safety
-          break;
-        case 'n':
-          break;
-        case 's':
-          printf("%s\n", e.notes.c_str());
-          continue;
-        case 'd':
-          if (getyn("confirm deleting notes ? [n] ", false)) {
-            printf("notes deleted\n");
-            e.notes = "";
-            break;
-          } else {
-            continue;
-          }
-        case '?': case 'h':
-          printf("Commands:\n"
-               "  Y      Yes, edit notes\n"
-               "  N      No, keep notes as-is\n"
-               "  D      Delete notes\n"
-               "  S      Show notes\n"
-               "  ?      Help\n");
-          continue;
-      }
-      break;
-    }
-
+    e.notes = edit_text("notes", e_orig.notes);
 
     if (e_orig != e) {
       typedef std::vector<std::string> changes_t;

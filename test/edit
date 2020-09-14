@@ -52,8 +52,8 @@ cmdline="$pwsafe -f $file --edit testing"
 $cmdline 2>$err 1>&2  <<EOF
 abc
 new_name
-new_group
-new_username
+ynew_group
+ynew_username
 
 
 y
