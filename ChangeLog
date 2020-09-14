@@ -1,3 +1,9 @@
+2020-09-13  Nicolas S. Dade  <nic.dade@gmail.com>
+
+	* pwsafe: improve edit operation to allow
+	  deletion of fields, and abandoning the
+	  edit.
+
 2020-09-04  Nicolas S. Dade  <nic.dade@gmail.com>
 
 	* pwsafe: remove the autoconf generated
