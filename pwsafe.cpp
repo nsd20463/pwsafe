@@ -2368,12 +2368,12 @@ const DB::Entry& DB::find1(const char* regex) {
       throw FailEx();
     }
     if (matches.size() > 1) {
-      printf("More than one matching entry: ");
+      printf("%zu matching entries: ", matches.size());
       size_t count = 0;
-      for (matches_t::const_iterator i=matches.begin(); i!=matches.end() && count < 3; ++i, ++count)
+      for (matches_t::const_iterator i=matches.begin(); i!=matches.end() && count < 10; ++i, ++count)
         printf("%s%s", (count?", ":""), (*i)->groupname().c_str());
       if (count != matches.size())
-        printf(", ... (%zu more) ", matches.size()-3);
+        printf(", ... (%zu more) ", matches.size()-10);
       printf(".\n");
       throw FailEx();
     }
