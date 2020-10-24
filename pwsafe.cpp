@@ -204,6 +204,8 @@ public:
   char& operator[] (size_t i) { return txt[i]; }
   const char* c_str() const { return txt; }
   const char* data() const { return txt; }
+  const char* fgets(int size, FILE *stream);
+  void dropnl();
   size_t length() const { return len; }
   bool empty() const { return len == 0; }
 
@@ -323,6 +325,26 @@ secstring::size_type secstring::find_last_not_of(char c) {
     if (txt[p] != c)
       return p;
   return npos;
+}
+const char* secstring::fgets(int size, FILE* stream) {
+  reserve(size);
+  char* rv;
+  rv = ::fgets(txt, size, stream);
+  if (rv != NULL) {
+    len = strlen(rv);
+  } else {
+    len = 0;
+    txt[0] = 0;
+  }
+  return rv;
+}
+void secstring::dropnl() {
+  if (length() > 0) {
+    if (txt[length()-1] == '\n') {
+      txt[length()-1] = '\0';
+      len -= 1;
+    }
+  }
 }
 
 secstring operator+(const secstring& t1, const secstring& t2) { 
@@ -1135,32 +1157,33 @@ static secstring getin(const char * prompt, const secstring& default_, bool echo
 // get a password from the user
 static secstring getpw(const std::string& prompt) {
   // use askpass binary if requested
+  secstring xx;
   if (arg_askpass) {
     FILE* pipe = popen(arg_askpass, "r");
     if (!pipe) {
       fprintf(stderr, "ERROR: cannot run askpass binary %s: %s\n", arg_askpass, strerror(errno));
       throw FailEx();
     }
-    char buffer[2048];
     errno = 0;
-    if (fgets(buffer, sizeof(buffer), pipe) == NULL) {
+    if (xx.fgets(2048, pipe) == NULL) {
       // we must distingush between an empty password and a failure. assume an empty password unless errno was set
       if (errno) {
         fprintf(stderr, "ERROR: cannot read password from askpass binary %s: %s\n", arg_askpass, strerror(errno));
         throw FailEx();
       }
-      buffer[0] = '\0';
+      xx.erase();
     }
     // Drop last char (LF) from buffer if it's not empty
-    size_t pwlen = strlen(buffer);
-    if (pwlen>0 && buffer[pwlen-1] == '\n') {
-      buffer[pwlen-1] = '\0';
-    }
-    secstring xx(buffer);
-    memset(buffer, 0, sizeof(buffer));
+    xx.dropnl();
     int returnCode = pclose(pipe);
-    if (returnCode) {
-      fprintf(stderr, "ERROR: askpass binary returned %d\n", returnCode);
+    if (returnCode == -1) {
+      fprintf(stderr, "ERROR: pipe to askpass: %s\n", strerror(errno));
+      throw FailEx();
+    } else if (returnCode == 256) {
+      // cancel pressed - return code 1
+      throw FailEx();
+    } else if (returnCode > 0) {
+      fprintf(stderr, "ERROR: askpass binary returned %d\n", returnCode >> 8);
       throw FailEx();
     }
     return xx;
