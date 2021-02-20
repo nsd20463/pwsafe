@@ -1124,7 +1124,7 @@ static secstring getin(const char * prompt, const secstring& default_, bool echo
   // do we have a line?
   if (!std::cin.fail() && !std::cin.eof()) {
     secstring xx(x.c_str(), x.size());
-    x.clear(); // x is a local; I'm not sure this does much. what we really want here is a memset(0) of the buffer
+    x.clear(); // x is a local; I'm not sure this does much. what we really want here is a OPENSSL_cleanse() of the buffer
     return xx.empty() ? default_ : xx;
   } else {
     // EOF/^d; abort
@@ -1157,7 +1157,7 @@ static secstring getpw(const std::string& prompt) {
       buffer[pwlen-1] = '\0';
     }
     secstring xx(buffer);
-    memset(buffer, 0, sizeof(buffer));
+    OPENSSL_cleanse(buffer, sizeof(buffer));
     int returnCode = pclose(pipe);
     if (returnCode) {
       fprintf(stderr, "ERROR: askpass binary returned %d\n", returnCode);
@@ -1870,7 +1870,7 @@ static secstring xmlescape(const secstring& s) {
       char buf[10];
       snprintf(buf,sizeof(buf),"\\%03o",c);
       out += buf;
-      memset(buf,0,sizeof(buf));
+      OPENSSL_cleanse(buf,sizeof(buf));
     } else switch (c) {
       case '"': out += "&quot;"; break;
       case '&': out += "&amp;"; break;
@@ -2087,9 +2087,9 @@ void DB::hashkey(const secstring& pw, unsigned char test_hash[]) {
   SHA1_Update(&sha, zeros, 2);
   SHA1_Final(test_hash, &sha);
 
-  memset(&sha,0,sizeof(sha));
-  memset(&bf,0,sizeof(bf));
-  memset(temp_key,0,sizeof(temp_key));
+  OPENSSL_cleanse(&sha,sizeof(sha));
+  OPENSSL_cleanse(&bf,sizeof(bf));
+  OPENSSL_cleanse(temp_key,sizeof(temp_key));
 }
 
 bool DB::open(const secstring* pw_to_try) {
@@ -2650,7 +2650,7 @@ DB::Context::Context(const Header& h, const secstring& pw, const Version& v) :
 }
 
 DB::Context::~Context() {
-  memset(&bf,0,sizeof(bf));
+  OPENSSL_cleanse(&bf,sizeof(bf));
 }
 
 // ----- DB::Entry class ----------------------------------------------
@@ -2864,7 +2864,7 @@ bool DB::Entry::write(FILE* f, DB::Context& c) const {
         throw FailEx();
       }
       save_uuid.assign(reinterpret_cast<const char*>(buf),sizeof(buf));
-      memset(buf,0,sizeof(buf));
+      OPENSSL_cleanse(buf,sizeof(buf));
     }
     return write(f,c,UUID,save_uuid) &&
       write(f,c,GROUP,group) &&
@@ -3036,7 +3036,7 @@ secalloc::Pool::Pool(size_t n) : next(0), top(0), bottom(0), level(0) {
 secalloc::Pool::~Pool() {
   char*const z = 0;
   const size_t pagesize = secalloc::pagesize;
-  memset(bottom, 0, top-bottom); // clear it once more, just in case everything wasn't properly deallocate()ed
+  OPENSSL_cleanse(bottom, top-bottom); // clear it once more, just in case everything wasn't properly deallocate()ed
   char*const l = z + ((bottom-z+pagesize-1) & ~(pagesize-1)); // recalculate original value we passed to mlock()
   munlock(l, top-l); // might fail; that's ok if it does
   free(bottom);
@@ -3085,7 +3085,7 @@ void* secalloc::allocate(size_t n) {
 }
 
 void secalloc::deallocate(void* p, size_t n) {
-  memset(p,0,n);
+  OPENSSL_cleanse(p,n);
 }
 
 void* secalloc::reallocate(void* p, size_t old_n, size_t new_n) {
