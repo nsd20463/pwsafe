@@ -5,7 +5,7 @@ DEPENDENCIES
 To build pwsafe you'll need the header files for X11, and openssl's libcrypto.
 On debian this should get you most of the way there:
 
-   apt-get install libx11-dev libxmu-dev libssl-dev
+   apt-get install libx11-dev libxmu-dev libssl-dev libreadline-dev
 
 
 HOW TO BUILD FROM SOURCE TARBALL
@@ -47,7 +47,7 @@ if you're on a linux system.
 You'll need autoconf 2.5 or better, and automake. On debian this should
 get you most of the way there:
 
-   apt-get install automake autoconf gcc 
+   apt-get install automake autoconf make g++
    ./build_linux.sh
 
 SUPPORTED ENVIRONMENTS
