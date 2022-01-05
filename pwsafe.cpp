@@ -650,7 +650,7 @@ int main(int argc, char **argv) {
       // if no --ignore was specified, use the default
       if (arg_ignore.empty()) {
         const char* ig = getenv("PWSAFE_IGNORE");
-        if (!ig) ig = "xclipboard:klipper:wmcliphist:<unknown>";
+        if (!ig) ig = "xclipboard:klipper:wmcliphist:Qt Clipboard Requestor Window:<unknown>";
         while (*ig) {
           const char*const q = ig;
           while (*ig && *ig != ':') ++ig;
@@ -1063,7 +1063,7 @@ static void usage(bool fail) {
         "  -x, --xclip                force copying of entry to X selection\n"
         "  -d, --display=XDISPLAY     override $DISPLAY (implies -x)\n"
         "  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x). Default is both primary and clipboard.\n"
-        "  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard, wmcliphist, klipper and <unknown>)\n"
+        "  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard, wmcliphist, klipper, Qt Clipboard Requestor Window and <unknown>)\n"
 #endif
         "  -q, --quiet                print no extra information\n"
         "  -v, --verbose              print more information (can be repeated)\n"
