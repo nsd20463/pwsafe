@@ -196,9 +196,9 @@ public:
   bool operator != (const secstring& s) const { return ! operator==(s); }
   bool operator < (const secstring&) const;
 
-  size_type find(char);
-  size_type find_first_not_of(char);
-  size_type find_last_not_of(char);
+  size_type find(char) const;
+  size_type find_first_not_of(char) const;
+  size_type find_last_not_of(char) const;
 
   const char& operator[] (size_t i) const { return txt[i]; }
   char& operator[] (size_t i) { return txt[i]; }
@@ -215,7 +215,7 @@ public:
   secstring& operator += (char c) { return append(&c,1); }
   secstring& operator += (const char* t) { return append(t,strlen(t)); }
   secstring& operator += (const secstring& s) { return append(s.c_str(),s.len); }
-  secstring substr(size_type, size_type);
+  secstring substr(size_type, size_type) const;
   void erase() { operator=(&null_string); }
   void reserve(size_type);
   void resize(size_type);
@@ -278,10 +278,13 @@ secstring& secstring::append(const char* t, size_type l) {
   txt[len] = '\0';
   return *this;
 }
-secstring secstring::substr(size_type s, size_type e) {
-  if (e == npos)
-    e = len;
-  return secstring(txt+s,e-s);
+
+secstring secstring::substr(size_type s, size_type cnt) const {
+  if (s > len)
+    cnt = 0;
+  else if (cnt == npos || cnt > (len - s))
+    cnt = len - s;
+  return secstring(txt+s,cnt);
 }
 
 void secstring::reserve(size_type r) {
@@ -305,20 +308,21 @@ bool secstring::operator==(const secstring& s) const {
           memcmp(txt,s.txt,len) == 0);
 }
 bool secstring::operator<(const secstring& s) const {
-  return strcmp(txt,s.txt) < 0;
+  const int c = memcmp(txt,s.txt,std::min(len,s.len));
+  return (c < 0) || (c == 0 && len < s.len);
 }
 
-secstring::size_type secstring::find(char c) {
-  char* p = strchr(txt,c);
+secstring::size_type secstring::find(char c) const {
+  const char* p = reinterpret_cast<const char *>(memchr(txt,c,len));
   return p ? p-txt : npos;
 }
-secstring::size_type secstring::find_first_not_of(char c) {
+secstring::size_type secstring::find_first_not_of(char c) const {
   for (size_type p = 0; p < len; p++)
     if (txt[p] != c)
       return p;
   return npos;
 }
-secstring::size_type secstring::find_last_not_of(char c) {
+secstring::size_type secstring::find_last_not_of(char c) const {
   for (size_type p = len-1; p >= 0; p--)
     if (txt[p] != c)
       return p;
